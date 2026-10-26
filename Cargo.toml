@@ -1,0 +1,32 @@
+[package]
+name = "notoffice"
+version = "1.0.0"
+edition = "2021"
+description = "NotOffice: a fast, free, local DOCX/XLSX/PDF/TXT editor. No subscriptions."
+license = "MIT"
+
+[lib]
+name = "liteoffice"
+
+[dependencies]
+eframe = "0.28"
+rfd = "0.14"
+quick-xml = "0.37"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+calamine = "0.37"
+cfb = "0.15"
+encoding_rs = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Data_Pdf", "Foundation", "Storage_Streams", "Win32_System_WinRT"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3.13"
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

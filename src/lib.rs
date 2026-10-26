@@ -1,0 +1,26 @@
+//! DOCX model and A4 geometry used by the NotOffice desktop shell.
+
+pub mod a4;
+pub mod app_paths;
+pub mod csv_import;
+pub mod doc;
+mod doc_export;
+pub mod docx;
+pub mod file_ops;
+pub mod html_export;
+pub mod i18n;
+pub mod legacy_sidecar;
+pub mod pdf;
+pub mod pdf_print;
+pub mod preferences;
+pub mod print;
+pub mod recent;
+pub mod recovery;
+pub mod replace;
+pub mod search;
+pub mod spreadsheet_ui;
+pub mod startup;
+pub mod text_document;
+pub mod workbook_edit;
+pub mod xls;
+pub mod xlsx;

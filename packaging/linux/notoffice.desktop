@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NotOffice
+Comment=Local DOCX, XLSX, TXT and PDF viewer/editor
+Exec=notoffice %F
+Icon=notoffice
+Terminal=false
+Categories=Office;WordProcessor;Spreadsheet;Viewer;
+MimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;text/plain;text/markdown;application/pdf;

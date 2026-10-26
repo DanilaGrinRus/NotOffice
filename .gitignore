@@ -1,0 +1,20 @@
+/target/
+/target-static/
+*.tmp
+
+# Release artifacts
+/NotOffice-*.exe
+/NotOffice-*.zip
+/*.sha256
+/SHA256SUMS.txt
+/packages/
+
+# Local previews and verification artifacts
+/evidence/
+/screenshots/
+
+# Portable runtime data
+/NotOffice-recovery/
+/NotOffice-language.txt
+/NotOffice-recent.txt
+/NotOffice-settings.txt
