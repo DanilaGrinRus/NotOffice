@@ -28,6 +28,13 @@ pub struct SpreadsheetDocument {
     pub cell_edit_request: Option<(usize, usize, String)>,
     pub freeze_top_row: bool,
     pub freeze_left_column: bool,
+    pub table_clipboard: Option<TableClipboard>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TableClipboard {
+    Row(Vec<String>),
+    Column(Vec<String>),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -257,6 +264,82 @@ impl SpreadsheetDocument {
         true
     }
 
+    pub fn copy_selected_row_or_column(&mut self) -> Option<String> {
+        let (row, column) = self
+            .selection
+            .row
+            .map(|row| {
+                (
+                    row,
+                    self.selected_cell.map(|(_, column)| column).unwrap_or(0),
+                )
+            })
+            .or_else(|| {
+                self.selection
+                    .column
+                    .map(|column| (self.selected_cell.map(|(row, _)| row).unwrap_or(0), column))
+            })
+            .or(self.selected_cell)?;
+        let sheet = self.selected_sheet()?;
+        let (clipboard, text) = if self.selection.row.is_some() {
+            let values = (0..sheet.column_count.min(16_384))
+                .map(|column| sheet.cell_value(row, column).to_owned())
+                .collect::<Vec<_>>();
+            (TableClipboard::Row(values.clone()), values.join("\t"))
+        } else {
+            let values = (0..sheet.row_count.min(10_000))
+                .map(|row| sheet.cell_value(row, column).to_owned())
+                .collect::<Vec<_>>();
+            (TableClipboard::Column(values.clone()), values.join("\n"))
+        };
+        self.table_clipboard = Some(clipboard);
+        Some(text)
+    }
+
+    pub fn paste_selected_row_or_column(&mut self) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let Some(clipboard) = self.table_clipboard.clone() else {
+            return false;
+        };
+        let (row, column) = self
+            .selection
+            .row
+            .map(|row| {
+                (
+                    row,
+                    self.selected_cell.map(|(_, column)| column).unwrap_or(0),
+                )
+            })
+            .or_else(|| {
+                self.selection
+                    .column
+                    .map(|column| (self.selected_cell.map(|(row, _)| row).unwrap_or(0), column))
+            })
+            .or(self.selected_cell)
+            .unwrap_or((0, 0));
+        match clipboard {
+            TableClipboard::Row(values) => {
+                for (offset, value) in values.into_iter().enumerate() {
+                    if column + offset >= 16_384 {
+                        break;
+                    }
+                    self.set_cell_text(row, column + offset, value);
+                }
+            }
+            TableClipboard::Column(values) => {
+                for (offset, value) in values.into_iter().enumerate() {
+                    if row + offset >= 1_048_576 {
+                        break;
+                    }
+                    self.set_cell_text(row + offset, column, value);
+                }
+            }
+        }
+        true
+    }
+
     pub fn delete_selected_row_or_column(&mut self) -> bool {
         let row = self.selection.row;
         let column = self.selection.column;
@@ -398,6 +481,31 @@ impl SpreadsheetDocument {
                 .clicked()
             {
                 self.horizontal_offset += 160.0;
+            }
+            if ui
+                .button(tr!("Копировать строку/столбец", "Copy row/column"))
+                .on_hover_text(tr!(
+                    "Скопировать выбранную строку или столбец в буфер",
+                    "Copy the selected row or column to the clipboard"
+                ))
+                .clicked()
+            {
+                if let Some(text) = self.copy_selected_row_or_column() {
+                    ui.ctx().copy_text(text);
+                }
+            }
+            if ui
+                .add_enabled(
+                    self.table_clipboard.is_some(),
+                    egui::Button::new(tr!("Вставить строку/столбец", "Paste row/column")),
+                )
+                .on_hover_text(tr!(
+                    "Вставить скопированную строку или столбец в текущую позицию",
+                    "Paste the copied row or column at the current position"
+                ))
+                .clicked()
+            {
+                changed |= self.paste_selected_row_or_column();
             }
             if ui
                 .button(tr!("Вставить диапазон", "Paste range"))
@@ -802,24 +910,6 @@ fn render_cells(
                 );
                 ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
             }
-            if let Some(edit) = edit.as_mut() {
-                ui.add_space(2.0 * zoom);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(tr!("Положение таблицы", "Table position"))
-                            .size(small_size)
-                            .color(egui::Color32::DARK_GRAY),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut edit.horizontal_offset, 0.0..=5_000.0)
-                            .show_value(false),
-                    )
-                    .on_hover_text(tr!(
-                        "Потяните ползунок или Shift + колесо мыши, чтобы двигать таблицу влево/вправо",
-                        "Drag to move the table left/right"
-                    ));
-                });
-            }
             ui.add_space(6.0 * zoom);
             if let Some(edit) = edit.as_mut() {
                 let shift_wheel = ui.rect_contains_pointer(ui.max_rect())
@@ -843,6 +933,7 @@ fn render_cells(
                 .unwrap_or(0.0);
             let scroll_output = egui::ScrollArea::both()
                 .id_source(("spreadsheet-cells", &sheet.sheet_name, rows.start, columns.start))
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .horizontal_scroll_offset(scroll_offset)
                 .show(ui, |ui| {
                     egui::Grid::new("spreadsheet-grid")

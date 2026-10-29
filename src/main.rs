@@ -1577,6 +1577,63 @@ impl NotOfficeApp {
         }
     }
 
+    fn handle_table_clipboard_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.decision_pending() || ctx.wants_keyboard_input() {
+            return;
+        }
+        let has_row_or_column = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.selection.row.is_some() || book.selection.column.is_some());
+        if !has_row_or_column {
+            return;
+        }
+        if ctx.input_mut(|input| {
+            input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
+                || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+        }) {
+            if let Some(text) = self
+                .spreadsheet
+                .as_mut()
+                .and_then(SpreadsheetDocument::copy_selected_row_or_column)
+            {
+                ctx.copy_text(text);
+                self.status = tr!(
+                    "Строка/столбец скопированы; выберите строку или столбец и нажмите Ctrl+V",
+                    "Row/column copied; select a row or column and press Ctrl+V"
+                )
+                .into();
+            }
+            return;
+        }
+        if ctx.input_mut(|input| {
+            input.consume_key(egui::Modifiers::CTRL, egui::Key::V)
+                || input.consume_key(egui::Modifiers::COMMAND, egui::Key::V)
+        }) {
+            if !self
+                .spreadsheet
+                .as_ref()
+                .is_some_and(|book| book.editor.is_some())
+            {
+                return;
+            }
+            let before = self.workbook_snapshot();
+            if self
+                .spreadsheet
+                .as_mut()
+                .is_some_and(SpreadsheetDocument::paste_selected_row_or_column)
+            {
+                self.record_workbook_edit(before);
+                self.search_dirty = true;
+                self.status = tr!(
+                    "Строка/столбец вставлены; Ctrl+Z отменяет",
+                    "Row/column pasted; Ctrl+Z undoes"
+                )
+                .into();
+            }
+        }
+    }
+
     fn handle_spreadsheet_undo_shortcut(&mut self, ctx: &egui::Context) {
         if self.decision_pending() {
             return;
@@ -4263,6 +4320,7 @@ impl NotOfficeApp {
         self.prepare_docx_focus(ctx);
         self.handle_edit_shortcuts(ctx);
         self.handle_spreadsheet_delete_shortcut(ctx);
+        self.handle_table_clipboard_shortcuts(ctx);
         if let Some(receiver) = self.print_receiver.as_ref() {
             match receiver.try_recv() {
                 Ok(message) => {
