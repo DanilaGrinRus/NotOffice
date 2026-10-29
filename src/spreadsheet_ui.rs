@@ -29,7 +29,11 @@ pub struct SpreadsheetDocument {
     pub freeze_top_row: bool,
     pub freeze_left_column: bool,
     pub table_clipboard: Option<TableClipboard>,
+    pub formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
+    pub highlights: CellHighlights,
 }
+
+pub type CellHighlights = std::collections::BTreeMap<(usize, usize, usize), [u8; 3]>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TableClipboard {
@@ -71,6 +75,7 @@ impl SpreadsheetDocument {
         if self.editor.is_none() || row >= 1_048_576 || column >= 16_384 {
             return;
         }
+        self.formulas.remove(&(self.selected_sheet, row, column));
         if let Some(sheet) = self.sheets.get_mut(self.selected_sheet) {
             if let Some(cell) = sheet
                 .cells
@@ -163,6 +168,11 @@ impl SpreadsheetDocument {
                     column,
                     crate::table_formula::format_number(value, self.decimal_places),
                 );
+                self.formulas.insert(
+                    (self.selected_sheet, row, column),
+                    expression.trim().to_owned(),
+                );
+                self.formula_input = expression.trim().to_owned();
                 self.formula_message = None;
                 true
             }
@@ -340,6 +350,70 @@ impl SpreadsheetDocument {
         true
     }
 
+    pub fn clear_active_cell(&mut self) -> bool {
+        let Some((row, column)) = self.selected_cell else {
+            return false;
+        };
+        if self.editor.is_none() {
+            return false;
+        }
+        self.set_cell_text(row, column, String::new());
+        true
+    }
+
+    pub fn insert_row_after_selected(&mut self) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let row = self
+            .selection
+            .row
+            .or_else(|| self.selected_cell.map(|(row, _)| row))
+            .unwrap_or(0);
+        let Some(sheet) = self.sheets.get_mut(self.selected_sheet) else {
+            return false;
+        };
+        for cell in &mut sheet.cells {
+            if cell.row > row {
+                cell.row += 1;
+            }
+        }
+        sheet.row_count = sheet.row_count.saturating_add(1).min(1_048_576);
+        let mut moved = std::collections::BTreeMap::new();
+        for (key, formula) in std::mem::take(&mut self.formulas) {
+            let (sheet, formula_row, column) = key;
+            let formula_row = if formula_row > row {
+                formula_row + 1
+            } else {
+                formula_row
+            };
+            moved.insert((sheet, formula_row, column), formula);
+        }
+        self.formulas = moved;
+        true
+    }
+
+    pub fn insert_column_after_selected(&mut self) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let column = self
+            .selection
+            .column
+            .or_else(|| self.selected_cell.map(|(_, column)| column))
+            .unwrap_or(0);
+        let Some(sheet) = self.sheets.get_mut(self.selected_sheet) else {
+            return false;
+        };
+        for cell in &mut sheet.cells {
+            if cell.column > column {
+                cell.column += 1;
+            }
+        }
+        sheet.column_count = sheet.column_count.saturating_add(1).min(16_384);
+        true
+    }
+
     pub fn delete_selected_row_or_column(&mut self) -> bool {
         let row = self.selection.row;
         let column = self.selection.column;
@@ -508,6 +582,47 @@ impl SpreadsheetDocument {
                 changed |= self.paste_selected_row_or_column();
             }
             if ui
+                .button(tr!("Добавить строку", "Insert row"))
+                .on_hover_text(tr!("Вставить пустую строку после выбранной", "Insert an empty row after the selected one"))
+                .clicked()
+            {
+                changed |= self.insert_row_after_selected();
+            }
+            if ui
+                .button(tr!("Добавить столбец", "Insert column"))
+                .on_hover_text(tr!("Вставить пустой столбец после выбранного", "Insert an empty column after the selected one"))
+                .clicked()
+            {
+                changed |= self.insert_column_after_selected();
+            }
+            if ui
+                .button(tr!("Очистить ячейку", "Clear cell"))
+                .on_hover_text(tr!("Очистить активную ячейку; Ctrl+Z отменяет", "Clear the active cell; Ctrl+Z undoes"))
+                .clicked()
+            {
+                changed |= self.clear_active_cell();
+            }
+            egui::ComboBox::from_id_source("cell-highlight")
+                .selected_text(tr!("Цвет ячейки", "Cell colour"))
+                .show_ui(ui, |ui| {
+                    let key = (self.selected_sheet, row, column);
+                    for (label, color) in [
+                        (tr!("Жёлтый", "Yellow"), [255, 235, 150]),
+                        (tr!("Зелёный", "Green"), [190, 235, 190]),
+                        (tr!("Голубой", "Blue"), [190, 225, 245]),
+                        (tr!("Розовый", "Pink"), [248, 200, 210]),
+                    ] {
+                        if ui.button(label).clicked() {
+                            self.highlights.insert(key, color);
+                            changed = true;
+                        }
+                    }
+                    if ui.button(tr!("Без цвета", "No colour")).clicked() {
+                        self.highlights.remove(&key);
+                        changed = true;
+                    }
+                });
+            if ui
                 .button(tr!("Вставить диапазон", "Paste range"))
                 .on_hover_text(tr!(
                     "Вставить текст из буфера как значения, начиная с активной ячейки; формулы не выполняются. Обычная вставка внутри редактора ячейки не перехватывается.",
@@ -536,6 +651,11 @@ impl SpreadsheetDocument {
             vertical_offset: self.vertical_offset,
             ..Default::default()
         };
+        let clear_active = edit.clear_cell_selection;
+        if clear_active {
+            self.selected_cell = None;
+            self.focus_pending = false;
+        }
         let Some(sheet) = self.selected_sheet() else {
             return false;
         };
@@ -550,6 +670,16 @@ impl SpreadsheetDocument {
             Some(&mut table_selection),
         );
         self.selection = table_selection;
+        if let Some(table_rect) = edit.table_rect {
+            let clicked_above = ui.input(|input| input.pointer.any_click())
+                && ui
+                    .input(|input| input.pointer.interact_pos())
+                    .is_some_and(|pos| pos.y < table_rect.top() && ui.max_rect().contains(pos));
+            if clicked_above {
+                self.selected_cell = None;
+                self.focus_pending = false;
+            }
+        }
         self.horizontal_offset = edit.horizontal_offset;
         self.vertical_offset = edit.vertical_offset;
         self.input_id = edit.input_id;
@@ -568,7 +698,14 @@ impl SpreadsheetDocument {
                 });
             let value = if is_submit {
                 submitted_applied = true;
-                self.evaluate_cell_input(row, column, &text).unwrap_or(text)
+                let formula = Self::looks_like_formula(&text);
+                let source = text.clone();
+                let value = self.evaluate_cell_input(row, column, &text).unwrap_or(text);
+                if formula {
+                    self.formulas
+                        .insert((self.selected_sheet, row, column), source);
+                }
+                value
             } else {
                 text
             };
@@ -578,6 +715,10 @@ impl SpreadsheetDocument {
             if !submitted_applied {
                 if let Some(value) = self.evaluate_cell_input(row, column, &text) {
                     self.set_cell_text(row, column, value);
+                    if Self::looks_like_formula(&text) {
+                        self.formulas
+                            .insert((self.selected_sheet, row, column), text.clone());
+                    }
                     changed = true;
                 }
             }
@@ -589,6 +730,15 @@ impl SpreadsheetDocument {
             if self.selected_cell != Some(cell) {
                 self.selected_cell = Some(cell);
                 self.focus_pending = self.editor.is_some();
+                self.formula_input = self
+                    .formulas
+                    .get(&(self.selected_sheet, cell.0, cell.1))
+                    .cloned()
+                    .or_else(|| {
+                        self.selected_sheet()
+                            .map(|sheet| sheet.cell_value(cell.0, cell.1).to_owned())
+                    })
+                    .unwrap_or_default();
                 if edit.navigate.is_some() {
                     self.preview_anchor = Some(cell);
                 }
@@ -619,6 +769,8 @@ struct InlineEdit {
     vertical_offset: f32,
     fill: Option<(usize, usize, usize)>,
     submit: Option<(usize, usize, String)>,
+    clear_cell_selection: bool,
+    table_rect: Option<egui::Rect>,
     dialog: Option<(usize, usize)>,
 }
 
@@ -823,6 +975,7 @@ pub struct SearchView<'a> {
     pub decimals: Option<u8>,
     pub freeze_top_row: bool,
     pub freeze_left_column: bool,
+    pub highlights: Option<&'a CellHighlights>,
 }
 
 fn preview_range(
@@ -1017,6 +1170,9 @@ fn render_cells(
                                     if let Some(focused) = ui.memory(|memory| memory.focused()) {
                                         ui.memory_mut(|memory| memory.surrender_focus(focused));
                                     }
+                                    if let Some(edit) = edit.as_deref_mut() {
+                                        edit.clear_cell_selection = true;
+                                    }
                                     if let Some(selection) = selection.as_deref_mut() {
                                         selection.row = Some(row);
                                         selection.column = None;
@@ -1037,6 +1193,12 @@ fn render_cells(
                                             egui::Color32::from_rgb(255, 214, 120)
                                         } else if is_match {
                                             egui::Color32::from_rgb(255, 244, 185)
+                                        } else if let Some(color) = search
+                                            .highlights
+                                            .and_then(|colors| colors.get(&(search.formats.map(|(_, sheet)| sheet).unwrap_or(0), row, column)))
+                                            .copied()
+                                        {
+                                            egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if is_active {
                                             egui::Color32::from_rgb(211, 234, 255)
                                         } else if selected_by_table {
@@ -1106,7 +1268,7 @@ fn render_cells(
                                         if let Some(edit) = edit.as_deref_mut() {
                                             let handle_rect = egui::Rect::from_center_size(
                                                 response.rect.right_bottom() + egui::vec2(-3.0, -3.0),
-                                                egui::vec2(9.0, 9.0),
+                                                egui::vec2(14.0, 14.0),
                                             );
                                             let handle = ui
                                                 .interact(
@@ -1150,6 +1312,7 @@ fn render_cells(
             if let Some(edit) = edit.as_mut() {
                 edit.horizontal_offset = scroll_output.state.offset.x;
                 edit.vertical_offset = scroll_output.state.offset.y;
+                edit.table_rect = Some(scroll_output.inner_rect);
             }
             draw_frozen_panes(
                 ui,

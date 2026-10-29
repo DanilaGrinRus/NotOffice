@@ -1681,10 +1681,13 @@ impl NotOfficeApp {
             return;
         }
         let before = self.workbook_snapshot();
-        let changed = self
-            .spreadsheet
-            .as_mut()
-            .is_some_and(|book| book.delete_selected_row_or_column());
+        let changed = self.spreadsheet.as_mut().is_some_and(|book| {
+            if has_selection {
+                book.delete_selected_row_or_column()
+            } else {
+                book.clear_active_cell()
+            }
+        });
         if changed {
             // This handler runs before the grid is drawn, so the snapshot is
             // guaranteed to be the state before Delete. The old in-grid delete
@@ -4535,6 +4538,7 @@ impl NotOfficeApp {
                 let changed = {
                     let book = self.spreadsheet.as_mut().unwrap();
                     let formats = book.formats.clone();
+                    let highlights = book.highlights.clone();
                     let view = SpreadsheetSearchView {
                         query: &search_query,
                         target: current_match.as_ref().and_then(|hit| match hit.target {
@@ -4552,6 +4556,7 @@ impl NotOfficeApp {
                         decimals: book.decimal_places,
                         freeze_top_row: book.freeze_top_row,
                         freeze_left_column: book.freeze_left_column,
+                        highlights: Some(&highlights),
                     };
                     book.show_grid(ui, self.zoom, &view, self.docx_editor_generation)
                 };
