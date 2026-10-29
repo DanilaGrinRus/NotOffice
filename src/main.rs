@@ -4301,6 +4301,7 @@ impl NotOfficeApp {
                         scroll: self.search_scroll_requested,
                         formats: Some((&formats, book.selected_sheet)),
                         editable: book.editor.is_some(),
+                        decimals: book.decimal_places,
                     };
                     book.show_grid(ui, self.zoom, &view, self.docx_editor_generation)
                 };

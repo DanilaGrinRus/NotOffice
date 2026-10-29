@@ -18,12 +18,24 @@ pub struct SpreadsheetDocument {
     pub input_rect: Option<egui::Rect>,
     /// Set by the explicit Paste range action; consumed by the shell.
     pub range_paste_requested: bool,
+    pub selection: TableSelection,
+    pub horizontal_offset: f32,
+    pub decimal_places: Option<u8>,
+    pub formula_input: String,
+    pub formula_message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TableSelection {
+    pub row: Option<usize>,
+    pub column: Option<usize>,
 }
 
 impl SpreadsheetDocument {
     pub fn from_sheets(sheets: Vec<SpreadsheetModel>) -> Self {
         Self {
             sheets,
+            decimal_places: Some(2),
             ..Self::default()
         }
     }
@@ -100,6 +112,81 @@ impl SpreadsheetDocument {
         std::mem::take(&mut self.range_paste_requested)
     }
 
+    pub fn set_formula_input(&mut self) {
+        let (row, column) = self.selected_cell.unwrap_or((0, 0));
+        if let Some(sheet) = self.selected_sheet() {
+            self.formula_input = sheet.cell_value(row, column).to_owned();
+        }
+    }
+
+    pub fn display_value(&self, row: usize, column: usize) -> String {
+        let Some(sheet) = self.selected_sheet() else {
+            return String::new();
+        };
+        format_display_value(sheet.cell_value(row, column), self.decimal_places)
+    }
+
+    pub fn apply_formula(&mut self) -> bool {
+        let Some((row, column)) = self.selected_cell else {
+            self.formula_message = Some(tr!("Выберите ячейку", "Select a cell").into());
+            return false;
+        };
+        let Some(sheet) = self.selected_sheet() else {
+            return false;
+        };
+        let expression = self.formula_input.clone();
+        let result = crate::table_formula::evaluate(&expression, |reference| {
+            crate::table_formula::parse_cell_reference(reference)
+                .filter(|(row, column)| *row < sheet.row_count && *column < sheet.column_count)
+                .map(|(row, column)| sheet.cell_value(row, column).to_owned())
+        });
+        match result {
+            Ok(value) => {
+                self.set_cell_text(
+                    row,
+                    column,
+                    crate::table_formula::format_number(value, self.decimal_places),
+                );
+                self.formula_message = None;
+                true
+            }
+            Err(error) => {
+                use crate::table_formula::FormulaError;
+                let reason = match error {
+                    FormulaError::Empty => tfm!("пустое выражение", "empty expression"),
+                    FormulaError::TooLong => {
+                        tfm!("слишком длинное выражение", "expression is too long")
+                    }
+                    FormulaError::BadReference => {
+                        tfm!("неверная ссылка на ячейку", "invalid cell reference")
+                    }
+                    FormulaError::BadNumber => tfm!(
+                        "неверное число (используйте точку или запятую)",
+                        "invalid number (use a dot or comma)"
+                    ),
+                    FormulaError::Unexpected => tfm!(
+                        "неожиданный символ или оператор",
+                        "unexpected character or operator"
+                    ),
+                    FormulaError::DivideByZero => tfm!("деление на ноль", "division by zero"),
+                    FormulaError::NotFinite => {
+                        tfm!("результат не является числом", "result is not finite")
+                    }
+                    FormulaError::NonNumericCell(reference) => tfm!(
+                        "ячейка {} не содержит число",
+                        "cell {} is not numeric",
+                        reference
+                    ),
+                };
+                self.formula_message = Some(tfm!(
+                    "Формула не вычислена: {reason}",
+                    "Formula not evaluated: {reason}"
+                ));
+                false
+            }
+        }
+    }
+
     pub fn show_editor(&mut self, ui: &mut egui::Ui, _generation: u64) -> bool {
         if self.editor.is_none() {
             return false;
@@ -136,6 +223,61 @@ impl SpreadsheetDocument {
                 self.formats.insert(key, format);
                 changed = true;
             }
+            ui.label(tr!("Формула", "Formula"));
+            let formula = ui.add(
+                egui::TextEdit::singleline(&mut self.formula_input)
+                    .desired_width(150.0)
+                    .hint_text("=A1+B1"),
+            );
+            let formula = if let Some(message) = self.formula_message.clone() {
+                formula.on_hover_text(message)
+            } else {
+                formula
+            };
+            if formula.gained_focus() {
+                formula.request_focus();
+            }
+            if ui
+                .button("=")
+                .on_hover_text(tr!(
+                    "Вычислить +, −, ×, ÷ и ссылки на ячейки; обычный текст с «=» не меняется",
+                    "Evaluate +, −, ×, ÷ and cell references; ordinary '=' text is unchanged"
+                ))
+                .clicked()
+            {
+                changed |= self.apply_formula();
+            }
+            ui.label(tr!("Знаков после запятой", "Decimal places"));
+            egui::ComboBox::from_id_source("workbook-decimals")
+                .selected_text(match self.decimal_places {
+                    Some(value) => value.to_string(),
+                    None => tr!("Авто", "Auto").to_owned(),
+                })
+                .width(72.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.decimal_places, None, tr!("Авто", "Auto"));
+                    for value in 0..=6_u8 {
+                        ui.selectable_value(
+                            &mut self.decimal_places,
+                            Some(value),
+                            value.to_string(),
+                        );
+                    }
+                });
+            if ui
+                .add(egui::Button::new("◀"))
+                .on_hover_text(tr!("Сдвинуть таблицу влево", "Move table left"))
+                .clicked()
+            {
+                self.horizontal_offset = (self.horizontal_offset - 160.0).max(0.0);
+            }
+            if ui
+                .add(egui::Button::new("▶"))
+                .on_hover_text(tr!("Сдвинуть таблицу вправо", "Move table right"))
+                .clicked()
+            {
+                self.horizontal_offset += 160.0;
+            }
             if ui
                 .button(tr!("Вставить диапазон", "Paste range"))
                 .on_hover_text(tr!(
@@ -164,9 +306,21 @@ impl SpreadsheetDocument {
             generation,
             sheet: self.selected_sheet,
             focus: self.focus_pending,
+            horizontal_offset: self.horizontal_offset,
             ..Default::default()
         };
-        let selected = render_cells(ui, sheet, self.selected_cell, zoom, search, Some(&mut edit));
+        let mut table_selection = self.selection;
+        let selected = render_cells(
+            ui,
+            sheet,
+            self.selected_cell,
+            zoom,
+            search,
+            Some(&mut edit),
+            Some(&mut table_selection),
+        );
+        self.selection = table_selection;
+        self.horizontal_offset = edit.horizontal_offset;
         self.input_id = edit.input_id;
         self.input_rect = edit.input_rect;
         if edit.focus_used {
@@ -200,6 +354,7 @@ struct InlineEdit {
     input_rect: Option<egui::Rect>,
     changes: Vec<(usize, usize, String)>,
     navigate: Option<(usize, usize)>,
+    horizontal_offset: f32,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -211,6 +366,16 @@ pub fn column_name(mut column: usize) -> String {
         column = (column - 1) / 26;
     }
     name
+}
+
+fn format_display_value(value: &str, decimals: Option<u8>) -> String {
+    let Some(decimals) = decimals else {
+        return value.to_owned();
+    };
+    let Some(number) = value.trim().parse::<f64>().ok().filter(|n| n.is_finite()) else {
+        return value.to_owned();
+    };
+    crate::table_formula::format_number(number, Some(decimals))
 }
 
 fn column_widths(
@@ -256,6 +421,7 @@ pub struct SearchView<'a> {
         usize,
     )>,
     pub editable: bool,
+    pub decimals: Option<u8>,
 }
 
 fn preview_range(
@@ -285,7 +451,7 @@ pub fn render_search(
     zoom: f32,
     search: &SearchView<'_>,
 ) -> Option<(usize, usize)> {
-    render_cells(ui, sheet, active_cell, zoom, search, None)
+    render_cells(ui, sheet, active_cell, zoom, search, None, None)
 }
 
 fn render_cells(
@@ -295,6 +461,7 @@ fn render_cells(
     zoom: f32,
     search: &SearchView<'_>,
     mut edit: Option<&mut InlineEdit>,
+    mut selection: Option<&mut TableSelection>,
 ) -> Option<(usize, usize)> {
     const MAX_PREVIEW_COLUMNS: usize = 26;
     const MAX_PREVIEW_ROWS: usize = 200;
@@ -340,45 +507,68 @@ fn render_cells(
                         .size(small_size)
                         .color(egui::Color32::DARK_GRAY),
                 );
-                ui.label(egui::RichText::new(sheet.cell_value(row, column).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
+                ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
             }
             ui.add_space(8.0 * zoom);
             ui.horizontal(|ui| {
                 ui.add_sized([32.0 * zoom, 24.0 * zoom], egui::Label::new(""));
                 for (column, width) in columns.clone().zip(&column_widths) {
-                    ui.add_sized(
+                    let response = ui.add_sized(
                         [*width, 24.0 * zoom],
                         egui::Label::new(
                             egui::RichText::new(column_name(column))
                                 .strong()
                                 .size(body_size)
                                 .color(egui::Color32::BLACK),
-                        ),
+                        )
+                        .sense(egui::Sense::click()),
                     );
+                    if response.clicked() {
+                        if let Some(selection) = selection.as_deref_mut() {
+                            selection.column = Some(column);
+                            selection.row = None;
+                        }
+                    }
                 }
             });
-            egui::ScrollArea::both()
+            let scroll_offset = edit
+                .as_ref()
+                .map(|edit| edit.horizontal_offset)
+                .unwrap_or(0.0);
+            let scroll_output = egui::ScrollArea::both()
                 .id_source(("spreadsheet-cells", &sheet.sheet_name, rows.start, columns.start))
+                .horizontal_scroll_offset(scroll_offset)
                 .show(ui, |ui| {
                     egui::Grid::new("spreadsheet-grid")
                         .spacing([2.0, 2.0])
                         .show(ui, |ui| {
                             for row in rows.clone() {
-                                ui.add_sized(
+                                let selected_row = selection.as_ref().is_some_and(|selection| selection.row == Some(row));
+                                let response = ui.add_sized(
                                     [32.0 * zoom, 22.0 * zoom],
                                     egui::Label::new(
                                         egui::RichText::new((row + 1).to_string())
                                             .size(small_size)
-                                            .color(egui::Color32::DARK_GRAY),
-                                    ),
+                                            .color(if selected_row { egui::Color32::from_rgb(0x6B, 0x42, 0x1C) } else { egui::Color32::DARK_GRAY }),
+                                    )
+                                    .sense(egui::Sense::click()),
                                 );
+                                if response.clicked() {
+                                    if let Some(selection) = selection.as_deref_mut() {
+                                        selection.row = Some(row);
+                                        selection.column = None;
+                                    }
+                                }
                                 for (column, width) in columns.clone().zip(&column_widths) {
                                     let format = search.formats.and_then(|(formats,sheet)| formats.get(&(sheet,row,column))).copied().unwrap_or_default();
-                                    let mut value = egui::RichText::new(sheet.cell_value(row,column)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
+                                    let mut value = egui::RichText::new(format_display_value(sheet.cell_value(row,column), search.decimals)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
                                     if format.bold { value = value.strong(); }
                                     let is_active = active_cell == Some((row, column));
                                     let is_target = search.target == Some((row, column));
                                     let is_match = !crate::search::ranges(sheet.cell_value(row, column), search.query, 1).is_empty();
+                                    let selected_by_table = selection.as_ref().is_some_and(|selection| {
+                                        selection.row == Some(row) || selection.column == Some(column)
+                                    });
                                     let response = egui::Frame::none()
                                         .fill(if is_target {
                                             egui::Color32::from_rgb(255, 214, 120)
@@ -386,6 +576,8 @@ fn render_cells(
                                             egui::Color32::from_rgb(255, 244, 185)
                                         } else if is_active {
                                             egui::Color32::from_rgb(211, 234, 255)
+                                        } else if selected_by_table {
+                                            egui::Color32::from_rgb(243, 230, 205)
                                         } else {
                                             egui::Color32::from_gray(250)
                                         })
@@ -454,6 +646,9 @@ fn render_cells(
                             }
                         });
                 });
+            if let Some(edit) = edit.as_mut() {
+                edit.horizontal_offset = scroll_output.state.offset.x;
+            }
             if sheet.row_count > MAX_PREVIEW_ROWS || sheet.column_count > MAX_PREVIEW_COLUMNS {
                 ui.add_space(8.0 * zoom);
                 ui.label(
@@ -489,5 +684,16 @@ mod tests {
         let columns = super::preview_range(30, 8, 26, Some(29));
         assert!(columns.contains(&29));
         assert_eq!(super::preview_range(0, 16, 200, None), 0..16);
+    }
+    #[test]
+    fn decimal_display_is_view_only_and_non_numeric_values_are_unchanged() {
+        assert_eq!(super::format_display_value("3.14159", Some(2)), "3.14");
+        assert_eq!(super::format_display_value("3.1000", Some(2)), "3.1");
+        assert_eq!(
+            super::format_display_value("Кириллица", Some(2)),
+            "Кириллица"
+        );
+        assert_eq!(super::format_display_value("=A1+B1", Some(2)), "=A1+B1");
+        assert_eq!(super::format_display_value("3.14159", None), "3.14159");
     }
 }

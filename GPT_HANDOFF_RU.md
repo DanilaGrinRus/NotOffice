@@ -1,4 +1,4 @@
-# GPT handoff — NotOffice 1.0.3
+# GPT handoff — NotOffice 1.0.4
 
 Документ для того, кто будет править этот форк дальше. Здесь архитектура,
 инварианты, команды, карта тестов, известные ограничения и грабли. Всё
@@ -10,8 +10,8 @@
   русским/английским UI и функциями Phase 4, которых не было в апстриме:
   recovery таблиц, undo/redo таблиц и текста, замена во всех редактируемых
   форматах, типизированный экспорт XLSX.
-- Версия: **1.0.3**; принятый Windows 1.0.0 сохранён отдельно.
-- Текущий проект: `C:\NotOffice\NotOffice-1.0.3`; 1.0.0 — в `accepted-windows-1.0-backup`. Старый roadmap в docs/
+- Версия: **1.0.4**; принятый Windows 1.0.0 сохранён отдельно.
+- Текущий проект: `C:\NotOffice\NotOffice-1.0.4`; 1.0.0 — в `accepted-windows-1.0-backup`. Старый roadmap в docs/
   исторический; он не определяет статус финального форка.
 - **Windows 1.0 принят пользователем.** Linux/macOS остаются экспериментальными.
   Принятые 1.0.0 и 1.0.1 сохранены соответственно в accepted-windows-1.0-backup
@@ -25,12 +25,12 @@
 | Путь | Что там |
 |---|---|
 | `src/`, `tests/`, `Cargo.toml`, `Cargo.lock` | полные исходники Windows 1.0 |
-| `NotOffice-1.0.3.exe` | release-сборка 1.0.3 |
-| `NotOffice-1.0.3-portable.zip` | портативный архив |
+| `NotOffice-1.0.4.exe` | release-сборка 1.0.4 |
+| `NotOffice-1.0.4-portable.zip` | портативный архив |
 | `README_REDESIGN_RU.md` | UI, RU/EN, измерения |
 | `PROJECT_LAYOUT_RU.md` | **согласованный формат проекта** — сохранять при дальнейших правках |
 | `PORTABILITY_RU.md` | сборка Linux/macOS, ограничения, `.deb`/tar |
-| `CHANGELOG_1.0.3_RU.md` | изменения 1.0.3 и Known Limitations |
+| `CHANGELOG_1.0.4_RU.md` | изменения 1.0.4 и Known Limitations |
 | `CLEAN_COPY_RU.md` | пассивная копия: что переносится и что теряется |
 | `RC_MANUAL_REGRESSION_RU.md` | ручная регрессия печати/PDF/окон |
 | `RECOVERY_CHECK_RU.md` | проверка recovery TXT |
@@ -151,7 +151,7 @@ cargo build --release
 
 - Release profile: `opt-level="z"`, fat LTO, `codegen-units=1`, `panic=abort`,
   strip.
-- `cargo test --all-targets`: **248 passed, 9 ignored**.
+- `cargo test --all-targets`: **253 passed, 9 ignored**.
   Разбивка на 29.10.2026: 143 lib (+1 ignored), 88 bin (+2 ignored),
   3 doc_export, 1 pdf_print (+1 ignored), 2 pdf_security (+2 ignored),
   4 search_formats (+3 ignored), 4 xlsb.
@@ -160,7 +160,7 @@ cargo build --release
   только разницу под отдельной File-блокировкой; не заменять его в приложении
   на полный preferences::save. Незнакомые строки сохраняются. Блокировочный
   файл не удаляется: удаление могло бы разделить владение между процессами.
-  Новый GUI-прогон 1.0.3 не подтверждён; четыре процесса проверены автотестом.
+  Новый GUI-прогон 1.0.4 не подтверждён; четыре процесса проверены автотестом.
 - Тесты ожидают **русские** строки статусов (глобальный язык по умолчанию RU).
   Не вызывай `set_english` в тестах и не запускай их параллельно с таким
   вызовом.

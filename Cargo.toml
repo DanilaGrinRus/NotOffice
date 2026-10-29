@@ -1,6 +1,6 @@
 [package]
 name = "notoffice"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 description = "NotOffice: a fast, free, local DOCX/XLSX/PDF/TXT editor. No subscriptions."
 license = "MIT"
@@ -30,4 +30,5 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
 

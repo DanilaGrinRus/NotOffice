@@ -1,7 +1,7 @@
-# NotOffice 1.0.3 — Windows-комплект
+# NotOffice 1.0.4 — Windows-комплект
 
-Исправления интерфейса, поиска/замены, выделения текста и очистки каталогов
-восстановления.
+Исправления интерфейса, поиска/замены, выделения текста, таблиц XLSX и
+очистки каталогов восстановления.
 
 ## Назначение
 
@@ -11,27 +11,27 @@
 
 ## Запуск
 
-Распакуйте NotOffice-1.0.3-portable.zip и запустите NotOffice-1.0.3.exe.
+Распакуйте NotOffice-1.0.4-portable.zip и запустите NotOffice-1.0.4.exe.
 Нужна Windows 10/11 x64 и папка с правом записи. Office и сеть не требуются.
 Настройки и recovery создаются рядом с EXE. Автоматическая установка ассоциаций
 файлов не выполняется.
 
 ## В комплекте
 
-- NotOffice-1.0.3.exe — release-сборка; копия также находится в C:\NotOffice.
-- NotOffice-1.0.3-portable.zip — EXE, инструкция, лицензии и хэш EXE.
-- NotOffice-1.0.3-sources.zip — исходники, тесты, документация и evidence.
+- NotOffice-1.0.4.exe — release-сборка; копия также находится в C:\NotOffice.
+- NotOffice-1.0.4-portable.zip — EXE, инструкция, лицензии и хэш EXE.
+- NotOffice-1.0.4-sources.zip — исходники, тесты, документация и evidence.
 - USER_GUIDE_RU.md — инструкция пользователя.
 - STATUS_RU.md — актуальные возможности, ограничения и результаты.
-- CHANGELOG_1.0.3_RU.md и REPORT_1_0_3_RU.md — это исправление.
+- CHANGELOG_1.0.4_RU.md и REPORT_1_0_4_RU.md — это исправление.
 - THEMES_RU.md, CLEAN_COPY_RU.md, RANGE_PASTE_RU.md — существующие функции.
 - docs/ — история предыдущих версий и протоколов.
 - SHA256SUMS.txt и .sha256 — контрольные суммы.
 
 ## Проверки
 
-fmt/check/test/clippy/release — PASS; 248 passed, 9 ignored.
-Проверена одновременная запись четырьмя процессами. Ручной GUI-прогон 1.0.3 — частичный; полный набор сценариев NOT VERIFIED.
+fmt/check/test/clippy/release — PASS; 253 passed, 9 ignored.
+Проверена одновременная запись четырьмя процессами. Ручной GUI-прогон 1.0.4 — частичный; полный набор сценариев NOT VERIFIED.
 Подробности: STATUS_RU.md и evidence/test-logs/cargo-*-final.log.
 
 ## Платформы и ограничения

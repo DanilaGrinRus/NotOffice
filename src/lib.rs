@@ -23,6 +23,7 @@ pub mod replace;
 pub mod search;
 pub mod spreadsheet_ui;
 pub mod startup;
+pub mod table_formula;
 pub mod text_document;
 pub mod theme;
 pub mod workbook_edit;
