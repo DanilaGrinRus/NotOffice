@@ -187,6 +187,39 @@ impl SpreadsheetDocument {
         }
     }
 
+    fn looks_like_formula(text: &str) -> bool {
+        let text = text.trim();
+        if text.starts_with('=') {
+            return true;
+        }
+        let date_parts: Vec<&str> = text.split(['-', '.', '/']).collect();
+        if date_parts.len() == 3
+            && date_parts[0].len() == 4
+            && date_parts
+                .iter()
+                .all(|part| part.chars().all(|c| c.is_ascii_digit()))
+        {
+            return false;
+        }
+        text.contains('+') || text.contains('*') || text.contains('/') || text.contains('-')
+    }
+
+    fn evaluate_cell_input(&self, row: usize, column: usize, text: &str) -> Option<String> {
+        if !Self::looks_like_formula(text) {
+            return None;
+        }
+        let sheet = self.selected_sheet()?;
+        let result = crate::table_formula::evaluate(text, |reference| {
+            crate::table_formula::parse_cell_reference(reference)
+                .filter(|(row, column)| *row < sheet.row_count && *column < sheet.column_count)
+                .map(|(row, column)| sheet.cell_value(row, column).to_owned())
+        });
+        let _ = (row, column);
+        result
+            .ok()
+            .map(|value| crate::table_formula::format_number(value, self.decimal_places))
+    }
+
     pub fn fill_down(&mut self, source_row: usize, column: usize, target_row: usize) -> bool {
         if target_row <= source_row || self.editor.is_none() {
             return false;
@@ -387,8 +420,18 @@ impl SpreadsheetDocument {
             self.focus_pending = false;
         }
         let mut changed = deleted_selection || !edit.changes.is_empty();
+        let submit = edit.submit;
         for (row, column, text) in edit.changes {
-            self.set_cell_text(row, column, text);
+            let value = if submit
+                .as_ref()
+                .is_some_and(|(submit_row, submit_column, _)| {
+                    *submit_row == row && *submit_column == column
+                }) {
+                self.evaluate_cell_input(row, column, &text).unwrap_or(text)
+            } else {
+                text
+            };
+            self.set_cell_text(row, column, value);
         }
         if let Some((source_row, column, target_row)) = edit.fill {
             changed |= self.fill_down(source_row, column, target_row);
@@ -419,6 +462,7 @@ struct InlineEdit {
     navigate: Option<(usize, usize)>,
     horizontal_offset: f32,
     fill: Option<(usize, usize, usize)>,
+    submit: Option<(usize, usize, String)>,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -590,6 +634,9 @@ fn render_cells(
                     .on_hover_cursor(egui::CursorIcon::ResizeVertical)
                     .on_hover_text(tr!("Выделить столбец", "Select column"));
                     if response.clicked() {
+                        if let Some(focused) = ui.memory(|memory| memory.focused()) {
+                            ui.memory_mut(|memory| memory.surrender_focus(focused));
+                        }
                         if let Some(selection) = selection.as_deref_mut() {
                             selection.column = Some(column);
                             selection.row = None;
@@ -622,6 +669,9 @@ fn render_cells(
                                 .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
                                 .on_hover_text(tr!("Выделить строку", "Select row"));
                                 if response.clicked() {
+                                    if let Some(focused) = ui.memory(|memory| memory.focused()) {
+                                        ui.memory_mut(|memory| memory.surrender_focus(focused));
+                                    }
                                     if let Some(selection) = selection.as_deref_mut() {
                                         selection.row = Some(row);
                                         selection.column = None;
@@ -665,6 +715,7 @@ fn render_cells(
                                                         ui.memory_mut(|m|m.request_focus(id));
                                                         edit.focus_used = true;
                                                     }
+                                                    let mut text=sheet.cell_value(row,column).to_owned();
                                                     if ui.memory(|m|m.has_focus(id)) {
                                                         let reverse = ui.input(|i|i.modifiers.shift);
                                                         let modifiers = if reverse { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
@@ -672,9 +723,9 @@ fn render_cells(
                                                             edit.navigate = Some((row,if reverse {column.saturating_sub(1)} else {(column+1).min(16383)}));
                                                         } else if ui.input_mut(|i|i.consume_key(modifiers,egui::Key::Enter)) {
                                                             edit.navigate = Some((if reverse {row.saturating_sub(1)} else {(row+1).min(1_048_575)},column));
+                                                            edit.submit = Some((row,column,text.clone()));
                                                         }
                                                     }
-                                                    let mut text=sheet.cell_value(row,column).to_owned();
                                                     ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
                                                     ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
                                                     ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(180,210,250);
