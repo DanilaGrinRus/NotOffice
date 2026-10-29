@@ -5,7 +5,9 @@
 могут быть устаревшими.
 
 Актуальный статус форка: [../STATUS_RU.md](../STATUS_RU.md).
-Изменения финального Windows 1.0: [../CHANGELOG_1.0.0_RU.md](../CHANGELOG_1.0.0_RU.md).
+Текущее исправление: [../CHANGELOG_1.0.2_RU.md](../CHANGELOG_1.0.2_RU.md).
+Предыдущая версия: [CHANGELOG_1.0.1_RU.md](CHANGELOG_1.0.1_RU.md) и
+[REPORT_1_0_1_RU.md](REPORT_1_0_1_RU.md).
 История кандидата: [CHANGELOG_1.0.0-rc.2_RU.md](CHANGELOG_1.0.0-rc.2_RU.md).
 Архитектура и правила: [../GPT_HANDOFF_RU.md](../GPT_HANDOFF_RU.md).
 

@@ -693,11 +693,16 @@ fn load_preferences() -> (print::PageSettings, f32, Theme) {
         ))
 }
 
-fn save_preferences(settings: print::PageSettings, zoom: f32, theme: Theme) -> std::io::Result<()> {
+fn save_preferences(
+    before: (print::PageSettings, f32, Theme),
+    settings: print::PageSettings,
+    zoom: f32,
+    theme: Theme,
+) -> std::io::Result<()> {
     let Some(path) = preferences_path() else {
         return Ok(());
     };
-    preferences::save(&path, settings, zoom, theme)
+    preferences::save_changes(&path, before, (settings, zoom, theme))
 }
 
 impl Default for NotOfficeApp {
@@ -3341,8 +3346,9 @@ impl NotOfficeApp {
         if self.theme == theme {
             return;
         }
+        let before = (self.print_settings, self.zoom, self.theme);
         self.theme = theme;
-        if let Err(error) = save_preferences(self.print_settings, self.zoom, self.theme) {
+        if let Err(error) = save_preferences(before, self.print_settings, self.zoom, self.theme) {
             self.status = tfm!(
                 "Тема применена, но настройка не сохранена: {error}",
                 "Theme applied, but the preference was not saved: {error}"
@@ -4147,10 +4153,11 @@ impl NotOfficeApp {
                 }
             }
         }
-        self.handle_docx_selection_shortcuts(ctx);
-        self.apply_ctrl_wheel_document_zoom(ctx);
         let previous_page_settings = self.print_settings;
         let previous_zoom = self.zoom;
+        let previous_theme = self.theme;
+        self.handle_docx_selection_shortcuts(ctx);
+        self.apply_ctrl_wheel_document_zoom(ctx);
         self.shell_command_bar(ctx);
         self.shell_document_strip(ctx);
         if self
@@ -4163,7 +4170,12 @@ impl NotOfficeApp {
         if self.print_settings != previous_page_settings
             || (self.zoom - previous_zoom).abs() > 0.0001
         {
-            if let Err(err) = save_preferences(self.print_settings, self.zoom, self.theme) {
+            if let Err(err) = save_preferences(
+                (previous_page_settings, previous_zoom, previous_theme),
+                self.print_settings,
+                self.zoom,
+                self.theme,
+            ) {
                 self.status = tfm!(
                     "Не удалось сохранить настройки просмотра: {err}",
                     "Could not save view preferences: {err}"
