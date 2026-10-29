@@ -1,4 +1,4 @@
-# GPT handoff — NotOffice 1.3.0
+# GPT handoff — NotOffice 1.0.1
 
 Документ для того, кто будет править этот форк дальше. Здесь архитектура,
 инварианты, команды, карта тестов, известные ограничения и грабли. Всё
@@ -10,8 +10,8 @@
   русским/английским UI и функциями Phase 4, которых не было в апстриме:
   recovery таблиц, undo/redo таблиц и текста, замена во всех редактируемых
   форматах, типизированный экспорт XLSX.
-- Версия: **1.3.0**; принятый Windows 1.0.0 сохранён отдельно.
-- Текущий проект: `C:\NotOffice\NotOffice-1.3.0`; 1.0.0 — в `accepted-windows-1.0-backup`. Старый roadmap в docs/
+- Версия: **1.0.1**; принятый Windows 1.0.0 сохранён отдельно.
+- Текущий проект: `C:\NotOffice\NotOffice-1.0.1`; 1.0.0 — в `accepted-windows-1.0-backup`. Старый roadmap в docs/
   исторический; он не определяет статус финального форка.
 - **Windows 1.0 принят пользователем.** Linux/macOS остаются экспериментальными.
   Принятый RC сохранён в C:\NotOffice\accepted-rc2-backup вне поставки.
@@ -23,12 +23,12 @@
 | Путь | Что там |
 |---|---|
 | `src/`, `tests/`, `Cargo.toml`, `Cargo.lock` | полные исходники Windows 1.0 |
-| `NotOffice-1.3.0.exe` | release-сборка 1.1.0 |
-| `NotOffice-1.3.0-portable.zip` | портативный архив |
+| `NotOffice-1.0.1.exe` | release-сборка 1.0.1 |
+| `NotOffice-1.0.1-portable.zip` | портативный архив |
 | `README_REDESIGN_RU.md` | UI, RU/EN, измерения |
 | `PROJECT_LAYOUT_RU.md` | **согласованный формат проекта** — сохранять при дальнейших правках |
 | `PORTABILITY_RU.md` | сборка Linux/macOS, ограничения, `.deb`/tar |
-| `CHANGELOG_1.1.0_RU.md` | изменения 1.1.0 и Known Limitations |
+| `CHANGELOG_1.0.1_RU.md` | изменения 1.0.1 и Known Limitations |
 | `CLEAN_COPY_RU.md` | пассивная копия: что переносится и что теряется |
 | `RC_MANUAL_REGRESSION_RU.md` | ручная регрессия печати/PDF/окон |
 | `RECOVERY_CHECK_RU.md` | проверка recovery TXT |
