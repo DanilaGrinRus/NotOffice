@@ -104,8 +104,23 @@ impl PdfView {
                 .show(ui, |ui| {
                     egui::Frame::none()
                         .fill(egui::Color32::WHITE)
+                        .inner_margin(egui::Margin::same(0.0))
                         .show(ui, |ui| {
-                            ui.image((texture.id(), egui::vec2(size[0] * zoom, size[1] * zoom)));
+                            // The PDF raster may contain transparency. Paint an explicit
+                            // white paper backing so a dark window theme cannot tint or
+                            // replace the page's original colors.
+                            let desired = egui::vec2(size[0] * zoom, size[1] * zoom);
+                            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+                            ui.painter().rect_filled(rect, 0.0, egui::Color32::WHITE);
+                            ui.painter().image(
+                                texture.id(),
+                                rect,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
                         });
                 });
         } else if let Some(error) = &self.error {

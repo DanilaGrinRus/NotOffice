@@ -2,6 +2,8 @@
 
 pub mod a4;
 pub mod app_paths;
+pub mod clean_copy;
+pub mod clipboard;
 pub mod csv_import;
 pub mod doc;
 mod doc_export;
@@ -14,6 +16,7 @@ pub mod pdf;
 pub mod pdf_print;
 pub mod preferences;
 pub mod print;
+pub mod range_paste;
 pub mod recent;
 pub mod recovery;
 pub mod replace;
@@ -21,6 +24,7 @@ pub mod search;
 pub mod spreadsheet_ui;
 pub mod startup;
 pub mod text_document;
+pub mod theme;
 pub mod workbook_edit;
 pub mod xls;
 pub mod xlsx;

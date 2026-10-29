@@ -14,11 +14,11 @@ use liteoffice::text_document::TextKind;
 use liteoffice::{tfm, tr};
 
 fn menu_title(text: &str) -> RichText {
-    RichText::new(text).size(12.5).color(theme::INK)
+    RichText::new(text).size(12.5).color(theme::ink())
 }
 
 fn faint_chip_bg() -> Color32 {
-    Color32::from_rgb(0xF1, 0xED, 0xE5)
+    theme::soft_bg()
 }
 
 /// Menu-bar buttons are plain text until hovered; egui's default framed
@@ -69,20 +69,20 @@ impl NotOfficeApp {
             .as_ref()
             .is_some_and(|book| book.editor.is_some());
         if self.pdf.is_some() {
-            ("PDF", theme::MUTED, faint_chip_bg())
+            ("PDF", theme::muted(), faint_chip_bg())
         } else if let Some(document) = &self.text {
             let label = match document.kind {
                 TextKind::Txt => "TXT",
                 TextKind::Markdown => "MD",
                 TextKind::Rtf => "RTF",
             };
-            (label, theme::ACCENT_INK, theme::ACCENT_SOFT)
+            (label, theme::accent_ink(), theme::accent_soft())
         } else if self.spreadsheet.is_some() {
             if editing_workbook {
                 (
                     tr!("XLSX · ПРАВКА", "XLSX · EDIT"),
-                    theme::ACCENT_INK,
-                    theme::ACCENT_SOFT,
+                    theme::accent_ink(),
+                    theme::accent_soft(),
                 )
             } else {
                 let label = self
@@ -98,18 +98,18 @@ impl NotOfficeApp {
                     Some("xls") => "XLS",
                     _ => "XLSX",
                 };
-                (label, theme::MUTED, faint_chip_bg())
+                (label, theme::muted(), faint_chip_bg())
             }
         } else if self.legacy_doc.is_some() {
-            ("DOC", theme::WARN, theme::WARN_SOFT)
+            ("DOC", theme::warn(), theme::warn_soft())
         } else if let Some(package) = &self.docx {
             if package.requires_save_as() {
-                ("DOC → DOCX", theme::WARN, theme::WARN_SOFT)
+                ("DOC → DOCX", theme::warn(), theme::warn_soft())
             } else {
-                ("DOCX", theme::ACCENT_INK, theme::ACCENT_SOFT)
+                ("DOCX", theme::accent_ink(), theme::accent_soft())
             }
         } else {
-            (tr!("ФАЙЛ", "FILE"), theme::MUTED, faint_chip_bg())
+            (tr!("ФАЙЛ", "FILE"), theme::muted(), faint_chip_bg())
         }
     }
 
@@ -144,6 +144,7 @@ impl NotOfficeApp {
                     ui.add_space(2.0);
                     self.file_menu(ui);
                     self.edit_menu(ui);
+                    self.view_menu(ui);
                     ui.add_space(2.0);
                     theme::hairline(ui);
                     ui.add_space(2.0);
@@ -225,6 +226,31 @@ impl NotOfficeApp {
                         self.print_document();
                     }
                     self.recent_menu_button(ui);
+                    if ui
+                        .add_enabled(
+                            self.docx.is_some()
+                                || self.legacy_doc.is_some()
+                                || self.spreadsheet.is_some(),
+                            egui::Button::new(
+                                RichText::new(tr!(
+                                    "Сохранить очищенную копию",
+                                    "Save clean copy"
+                                ))
+                                .size(11.0),
+                            ),
+                        )
+                        .on_hover_text(tr!(
+                            "Создать отдельную копию без макросов, OLE/ActiveX, вложений и внешних связей",
+                            "Create a separate copy without macros, OLE/ActiveX, attachments or external links"
+                        ))
+                        .on_disabled_hover_text(tr!(
+                            "Доступно для открытого DOC/DOCX или XLS/XLSX",
+                            "Available for an open DOC/DOCX or XLS/XLSX"
+                        ))
+                        .clicked()
+                    {
+                        self.create_clean_copy();
+                    }
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui
@@ -344,7 +370,7 @@ impl NotOfficeApp {
                         "After choosing a file, edits will be written only there. The source file stays unchanged."
                     ))
                     .size(11.0)
-                    .color(theme::MUTED),
+                    .color(theme::muted()),
                 );
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
@@ -399,7 +425,7 @@ impl NotOfficeApp {
                         "The original .doc stays unchanged. Styles, tables, columns and exact Word layout may be lost."
                     ))
                     .size(11.0)
-                    .color(theme::MUTED),
+                    .color(theme::muted()),
                 );
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
@@ -468,25 +494,10 @@ impl NotOfficeApp {
                 ui.close_menu();
             }
             let recents = self.recent_paths.clone();
-            if !recents.is_empty() {
-                ui.separator();
-                ui.menu_button(tr!("Недавние", "Open recent"), |ui| {
-                    for path in recents {
-                        let name = path
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| path.display().to_string());
-                        if ui
-                            .button(name)
-                            .on_hover_text(path.display().to_string())
-                            .clicked()
-                        {
-                            self.request_open_path(path);
-                            ui.close_menu();
-                        }
-                    }
-                });
-            }
+            ui.separator();
+            ui.menu_button(tr!("Недавние", "Open recent"), |ui| {
+                self.recent_menu_contents(ui, &recents);
+            });
             ui.separator();
             if ui
                 .add_enabled(
@@ -525,6 +536,23 @@ impl NotOfficeApp {
             }
             if ui
                 .add_enabled(
+                    self.docx.is_some() || self.legacy_doc.is_some() || self.spreadsheet.is_some(),
+                    egui::Button::new(tr!(
+                        "Создать копию без активного содержимого…",
+                        "Create passive-only copy…"
+                    )),
+                )
+                .on_hover_text(tr!(
+                    "Только текст, таблицы, значения и растровые изображения; формулы, макросы, OLE/ActiveX, вложения и внешние связи не переносятся",
+                    "Only text, tables, values and raster images; formulas, macros, OLE/ActiveX, attachments and external links are not transferred"
+                ))
+                .clicked()
+            {
+                self.create_clean_copy();
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(
                     self.spreadsheet.is_some(),
                     egui::Button::new(tr!("Экспорт CSV…", "Export CSV…")),
                 )
@@ -557,6 +585,26 @@ impl NotOfficeApp {
                 self.export_html();
                 ui.close_menu();
             }
+        });
+    }
+
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        flat_menu(ui, tr!("Вид", "View"), |ui| {
+            ui.set_min_width(210.0);
+            ui.menu_button(tr!("Тема", "Theme"), |ui| {
+                ui.set_min_width(210.0);
+                for theme in liteoffice::theme::Theme::ALL {
+                    let label = if liteoffice::i18n::is_ru() {
+                        theme.label_ru()
+                    } else {
+                        theme.label_en()
+                    };
+                    if ui.selectable_label(self.theme == theme, label).clicked() {
+                        self.set_theme(theme);
+                        ui.close_menu();
+                    }
+                }
+            });
         });
     }
 
@@ -651,33 +699,49 @@ impl NotOfficeApp {
         });
     }
 
+    fn recent_menu_contents(&mut self, ui: &mut egui::Ui, recents: &[std::path::PathBuf]) {
+        for path in recents {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            if ui
+                .button(name)
+                .on_hover_text(path.display().to_string())
+                .clicked()
+            {
+                self.request_open_path(path.clone());
+                ui.close_menu();
+            }
+        }
+        if !recents.is_empty() {
+            ui.separator();
+        }
+        if ui
+            .add_enabled(
+                !recents.is_empty(),
+                egui::Button::new(tr!("Очистить список недавних файлов", "Clear recent files")),
+            )
+            .clicked()
+        {
+            self.clear_recent_files();
+            ui.close_menu();
+        }
+        if ui
+            .button(tr!("Открыть папку восстановления", "Open recovery folder"))
+            .clicked()
+        {
+            self.open_recovery_folder();
+            ui.close_menu();
+        }
+    }
+
     fn recent_menu_button(&mut self, ui: &mut egui::Ui) {
         let recents = self.recent_paths.clone();
-        if recents.is_empty() {
-            ui.add_enabled(
-                false,
-                egui::Button::new(RichText::new(tr!("Недавние", "Recent")).size(11.0)),
-            )
-            .on_disabled_hover_text(tr!("Недавних файлов пока нет", "No recent files yet"));
-            return;
-        }
         ui.menu_button(
             RichText::new(tr!("Недавние", "Recent")).size(11.0),
             |ui| {
-                for path in recents {
-                    let name = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| path.display().to_string());
-                    if ui
-                        .button(name)
-                        .on_hover_text(path.display().to_string())
-                        .clicked()
-                    {
-                        self.request_open_path(path);
-                        ui.close_menu();
-                    }
-                }
+                self.recent_menu_contents(ui, &recents);
             },
         );
     }
@@ -763,7 +827,7 @@ impl NotOfficeApp {
                 |ui| {
                     ui.set_max_width(name_width);
                     ui.add(
-                        egui::Label::new(RichText::new(name).size(12.5).color(theme::INK))
+                        egui::Label::new(RichText::new(name).size(12.5).color(theme::ink()))
                             .truncate(),
                     )
                 },
@@ -772,19 +836,19 @@ impl NotOfficeApp {
         title.on_hover_text(full_path);
 
         if self.is_dirty() {
-            theme::dot(ui, theme::WARN);
+            theme::dot(ui, theme::warn());
             ui.label(
                 RichText::new(tr!("Не сохранено", "Unsaved"))
                     .size(10.5)
-                    .color(theme::WARN),
+                    .color(theme::warn()),
             );
         }
         if self.recovered_document {
             theme::chip(
                 ui,
                 tr!("ВОССТАНОВЛЕНО", "RECOVERED"),
-                theme::WARN,
-                theme::WARN_SOFT,
+                theme::warn(),
+                theme::warn_soft(),
             )
             .on_hover_text(tr!(
                 "Восстановленная копия — перед заменой источника требуется «Сохранить как».",
@@ -795,7 +859,7 @@ impl NotOfficeApp {
             let recovery_available = self.recovery_root.is_some();
             let (color, hint) = if recovery_available {
                 (
-                    theme::ACCENT,
+                    theme::accent(),
                     tr!(
                         "Восстановление включено: каждые 2 секунды сохраняется контрольная точка. После сбоя можно восстановить копию; оригинал не изменяется.",
                         "Recovery is on: a checkpoint is saved every 2 seconds. After a crash you can restore a copy; the original is unchanged."
@@ -803,7 +867,7 @@ impl NotOfficeApp {
                 )
             } else {
                 (
-                    theme::WARN,
+                    theme::warn(),
                     tr!(
                         "Восстановление недоступно в этом окне: контрольные точки не создаются. Сохраняйте работу вручную; оригинал не изменяется.",
                         "Recovery is unavailable in this window: checkpoints are not created. Save your work manually; the original is unchanged."
@@ -838,9 +902,9 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tr!("Шрифт", "Font"))
                     .size(10.5)
-                    .color(theme::FAINT),
+                    .color(theme::faint()),
             );
-            ui.label(RichText::new("—").size(11.0).color(theme::FAINT))
+            ui.label(RichText::new("—").size(11.0).color(theme::faint()))
                 .on_hover_text(tr!(
                     "TXT, MD и RTF не хранят шрифт. Кегль доступен для DOCX; для текста используйте масштаб.",
                     "TXT, MD and RTF do not store a font. Font size is available for DOCX; use zoom for text."
@@ -853,7 +917,7 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tr!("DOC — только просмотр", "DOC is view-only"))
                     .size(10.5)
-                    .color(theme::MUTED),
+                    .color(theme::muted()),
             );
             if ui
                 .add(egui::Button::new(
@@ -900,7 +964,7 @@ impl NotOfficeApp {
                     ui.label(
                         RichText::new(tfm!("Страниц: {pages}", "{pages} pages"))
                             .size(10.5)
-                            .color(theme::FAINT),
+                            .color(theme::faint()),
                     );
                 }
             }
@@ -908,7 +972,7 @@ impl NotOfficeApp {
                 ui.label(
                     RichText::new(tr!("растровый просмотр", "raster view"))
                         .size(10.5)
-                        .color(theme::FAINT),
+                        .color(theme::faint()),
                 );
             }
         });
@@ -936,9 +1000,9 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tr!("Шрифт", "Font"))
                     .size(10.5)
-                    .color(theme::FAINT),
+                    .color(theme::faint()),
             );
-            ui.label(RichText::new("—").size(11.0).color(theme::FAINT))
+            ui.label(RichText::new("—").size(11.0).color(theme::faint()))
                 .on_hover_text(tr!(
                     "Выделите текст в документе, чтобы изменить кегль",
                     "Select text in the document to change its size"
@@ -949,7 +1013,7 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tr!("Шрифт", "Font"))
                     .size(10.5)
-                    .color(theme::FAINT),
+                    .color(theme::faint()),
             );
             if ui
                 .add(
@@ -1001,7 +1065,7 @@ impl NotOfficeApp {
                     egui::Button::new(
                         RichText::new(tr!("Выделить всё", "Select all"))
                             .size(10.5)
-                            .color(theme::MUTED),
+                            .color(theme::muted()),
                     )
                     .frame(false),
                 )
@@ -1017,7 +1081,7 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tr!("весь текст", "all text"))
                     .size(10.5)
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             );
         }
     }
@@ -1049,7 +1113,7 @@ impl NotOfficeApp {
                 .add(egui::Button::new(
                     RichText::new(tr!("Изменить значения", "Edit values"))
                         .size(11.5)
-                        .color(theme::ACCENT_INK),
+                        .color(theme::accent_ink()),
                 ))
                 .on_hover_text(tr!(
                     "Создать копию XLSX с типизированными значениями ячеек; формулы не сохраняются",
@@ -1084,11 +1148,11 @@ impl NotOfficeApp {
                         || self.status.starts_with("Open failed")
                         || self.status.starts_with("Save failed")
                     {
-                        theme::DANGER
+                        theme::danger()
                     } else if self.status.is_empty() {
-                        theme::FAINT
+                        theme::faint()
                     } else {
-                        theme::MUTED
+                        theme::muted()
                     };
                     let message_width = (ui.available_width() * 0.55).max(120.0);
                     ui.allocate_ui_with_layout(
@@ -1110,7 +1174,7 @@ impl NotOfficeApp {
                         ui.label(
                             RichText::new(self.search_context())
                                 .size(11.0)
-                                .color(theme::ACCENT_INK),
+                                .color(theme::accent_ink()),
                         );
                     }
                     if !self.recovery_notice.is_empty() {
@@ -1124,7 +1188,7 @@ impl NotOfficeApp {
                                     egui::Label::new(
                                         RichText::new(&self.recovery_notice)
                                             .size(11.0)
-                                            .color(theme::WARN),
+                                            .color(theme::warn()),
                                     )
                                     .truncate(),
                                 )
@@ -1133,13 +1197,13 @@ impl NotOfficeApp {
                         );
                     }
                     if self.print_receiver.is_some() {
-                        ui.label(RichText::new(tr!("Идёт печать…", "Printing…")).size(11.0).color(theme::MUTED));
+                        ui.label(RichText::new(tr!("Идёт печать…", "Printing…")).size(11.0).color(theme::muted()));
                     }
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if !self.open_diagnostics.is_empty() {
                             ui.menu_button(
-                                RichText::new(tr!("Подробнее", "Details")).size(11.0).color(theme::MUTED),
+                                RichText::new(tr!("Подробнее", "Details")).size(11.0).color(theme::muted()),
                                 |ui| {
                                     ui.set_min_width(360.0);
                                     for message in &self.open_diagnostics {
@@ -1149,16 +1213,16 @@ impl NotOfficeApp {
                             );
                         }
                         if self.print_receiver.is_some() {
-                            ui.label(RichText::new(tr!("Диалог печати открыт", "Print dialog active")).size(10.5).color(theme::FAINT));
+                            ui.label(RichText::new(tr!("Диалог печати открыт", "Print dialog active")).size(10.5).color(theme::faint()));
                         }
                         let (rect, response) =
                             ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
-                        theme::paint_icon(ui.painter(), rect, Icon::Lock, theme::FAINT);
+                        theme::paint_icon(ui.painter(), rect, Icon::Lock, theme::faint());
                         let hint = response.on_hover_text(
                             tr!("Только локальные файлы. Скрипты документов, макросы и внешнее содержимое никогда не запускаются.", "Local files only. Document scripts, macros and external content are never enabled."),
                         );
                         let _ = hint;
-                        ui.label(RichText::new(tr!("локально", "local")).size(10.5).color(theme::FAINT));
+                        ui.label(RichText::new(tr!("локально", "local")).size(10.5).color(theme::faint()));
                     });
                 });
             });
@@ -1184,11 +1248,11 @@ impl NotOfficeApp {
                         tr!("Влияет на разбиение на страницы и печать. Исходный файл не изменяется.", "Affects preview pagination and printing. The original file is never changed."),
                     )
                     .size(11.0)
-                    .color(theme::MUTED),
+                    .color(theme::muted()),
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(tr!("Ориентация", "Orientation")).size(11.5).color(theme::MUTED));
+                    ui.label(RichText::new(tr!("Ориентация", "Orientation")).size(11.5).color(theme::muted()));
                     ui.selectable_value(&mut self.print_settings.landscape, false, tr!("Книжная", "Portrait"));
                     ui.selectable_value(&mut self.print_settings.landscape, true, tr!("Альбомная", "Landscape"));
                 });
@@ -1197,7 +1261,7 @@ impl NotOfficeApp {
                     ui.label(
                         RichText::new(tr!("Поля печати", "Print margins"))
                             .size(11.5)
-                            .color(theme::MUTED),
+                            .color(theme::muted()),
                     )
                     .on_hover_text(tr!(
                         "Влияют на печать и разбиение. Вёрстка исходного DOCX не меняется; поля для произвольного фрагмента текста форматом DOCX не поддерживаются.",
@@ -1216,7 +1280,7 @@ impl NotOfficeApp {
                 });
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(tr!("Изображения при печати", "Images when printing")).size(11.5).color(theme::MUTED));
+                    ui.label(RichText::new(tr!("Изображения при печати", "Images when printing")).size(11.5).color(theme::muted()));
                     egui::ComboBox::from_id_source("page_setup_scale")
                         .selected_text(match self.print_settings.image_scale {
                             liteoffice::print::ImageScale::OriginalSize => tr!("Оригинальный размер", "Original size"),
@@ -1263,13 +1327,13 @@ impl NotOfficeApp {
                             "Print from the toolbar or Ctrl+P"
                         ))
                         .size(10.5)
-                        .color(theme::FAINT),
+                        .color(theme::faint()),
                     );
                     if self.pdf.is_some() {
                         ui.label(
                             RichText::new(tr!("PDF использует собственный диалог печати", "PDF uses its own print dialog"))
                                 .size(10.5)
-                                .color(theme::FAINT),
+                                .color(theme::faint()),
                         );
                     }
                 });
@@ -1291,7 +1355,7 @@ impl NotOfficeApp {
                 RichText::new("NotOffice")
                     .size(23.0)
                     .family(theme::heading_family(ui.ctx()))
-                    .color(theme::INK),
+                    .color(theme::ink()),
             );
             ui.add_space(3.0);
             ui.label(
@@ -1300,7 +1364,7 @@ impl NotOfficeApp {
                     "Read and edit office documents without sending them anywhere."
                 ))
                 .size(12.0)
-                .color(theme::MUTED),
+                .color(theme::muted()),
             );
             ui.add_space(20.0);
             // A fixed-width row is centred by the enclosing layout; a bare
@@ -1323,10 +1387,10 @@ impl NotOfficeApp {
                             egui::Button::new(
                                 RichText::new(tr!("Новый текст", "New text"))
                                     .size(12.5)
-                                    .color(theme::INK),
+                                    .color(theme::ink()),
                             )
-                            .fill(theme::CARD)
-                            .stroke(Stroke::new(1.0_f32, theme::LINE))
+                            .fill(theme::card())
+                            .stroke(Stroke::new(1.0_f32, theme::line()))
                             .rounding(egui::Rounding::same(6.0))
                             .min_size(Vec2::new(0.0, 27.0)),
                         )
@@ -1347,7 +1411,7 @@ impl NotOfficeApp {
                     "Drop a file here  ·  Shift+drop opens a new window"
                 ))
                 .size(10.5)
-                .color(theme::FAINT),
+                .color(theme::faint()),
             );
             ui.add_space(10.0);
             ui.label(
@@ -1355,7 +1419,7 @@ impl NotOfficeApp {
                     "DOCX · DOC · XLSX · XLS · XLSB · ODS · CSV · TSV · PDF · TXT · MD · RTF",
                 )
                 .size(9.5)
-                .color(theme::FAINT),
+                .color(theme::faint()),
             );
 
             let recents = self
@@ -1372,14 +1436,14 @@ impl NotOfficeApp {
                         "Recently opened files will appear here."
                     ))
                     .size(10.5)
-                    .color(theme::FAINT),
+                    .color(theme::faint()),
                 );
             }
             if !recents.is_empty() {
                 ui.add_space(26.0);
                 egui::Frame::none()
-                    .fill(theme::CARD)
-                    .stroke(Stroke::new(1.0_f32, theme::LINE))
+                    .fill(theme::card())
+                    .stroke(Stroke::new(1.0_f32, theme::line()))
                     .rounding(egui::Rounding::same(9.0))
                     .shadow(egui::epaint::Shadow {
                         offset: egui::vec2(0.0, 4.0),
@@ -1395,7 +1459,7 @@ impl NotOfficeApp {
                                 RichText::new(tr!("НЕДАВНИЕ", "RECENT"))
                                     .size(9.5)
                                     .family(theme::heading_family(ui.ctx()))
-                                    .color(theme::FAINT),
+                                    .color(theme::faint()),
                             );
                             ui.add_space(6.0);
                             for path in recents.into_iter() {
@@ -1410,7 +1474,7 @@ impl NotOfficeApp {
                                         ui.painter(),
                                         icon_rect,
                                         Icon::Page,
-                                        theme::FAINT,
+                                        theme::faint(),
                                     );
                                     let response = ui
                                         .allocate_ui_with_layout(
@@ -1421,7 +1485,7 @@ impl NotOfficeApp {
                                                     egui::Label::new(
                                                         RichText::new(name)
                                                             .size(12.0)
-                                                            .color(theme::INK),
+                                                            .color(theme::ink()),
                                                     )
                                                     .truncate()
                                                     .sense(Sense::click()),
@@ -1441,7 +1505,7 @@ impl NotOfficeApp {
                                                     response.rect.bottom() + 1.0,
                                                 ),
                                             ],
-                                            Stroke::new(1.0_f32, theme::ACCENT),
+                                            Stroke::new(1.0_f32, theme::accent()),
                                         );
                                     }
                                     if response
@@ -1460,7 +1524,7 @@ impl NotOfficeApp {
             ui.label(
                 RichText::new(tfm!("Версия {}", "Version {}", env!("CARGO_PKG_VERSION")))
                     .size(9.5)
-                    .color(theme::FAINT),
+                    .color(theme::faint()),
             );
         });
     }

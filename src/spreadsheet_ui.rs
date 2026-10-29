@@ -16,6 +16,8 @@ pub struct SpreadsheetDocument {
     pub input_id: Option<egui::Id>,
     pub focus_pending: bool,
     pub input_rect: Option<egui::Rect>,
+    /// Set by the explicit Paste range action; consumed by the shell.
+    pub range_paste_requested: bool,
 }
 
 impl SpreadsheetDocument {
@@ -62,6 +64,42 @@ impl SpreadsheetDocument {
         }
     }
 
+    /// Paste a rectangular text range at the active cell. All limits are
+    /// checked before the first mutation, so an oversized range changes nothing.
+    pub fn paste_grid(
+        &mut self,
+        text: &str,
+    ) -> Result<(usize, usize), crate::range_paste::RangePasteError> {
+        use crate::range_paste::{parse_grid, RangePasteError};
+        if self.editor.is_none() {
+            return Err(RangePasteError::ReadOnly);
+        }
+        if self.selected_sheet().is_none() {
+            return Err(RangePasteError::OutOfBounds);
+        }
+        let grid = parse_grid(text)?;
+        let (row, column) = self.selected_cell.unwrap_or((0, 0));
+        let end_row = row
+            .checked_add(grid.rows)
+            .ok_or(RangePasteError::OutOfBounds)?;
+        let end_column = column
+            .checked_add(grid.columns)
+            .ok_or(RangePasteError::OutOfBounds)?;
+        if end_row > 1_048_576 || end_column > 16_384 {
+            return Err(RangePasteError::OutOfBounds);
+        }
+        for (row_offset, values) in grid.cells.iter().enumerate() {
+            for (column_offset, value) in values.iter().enumerate() {
+                self.set_cell_text(row + row_offset, column + column_offset, value.clone());
+            }
+        }
+        Ok((grid.rows, grid.columns))
+    }
+
+    pub fn take_range_paste_request(&mut self) -> bool {
+        std::mem::take(&mut self.range_paste_requested)
+    }
+
     pub fn show_editor(&mut self, ui: &mut egui::Ui, _generation: u64) -> bool {
         if self.editor.is_none() {
             return false;
@@ -97,6 +135,16 @@ impl SpreadsheetDocument {
                 self.editor.as_mut().unwrap().formats.insert(key, format);
                 self.formats.insert(key, format);
                 changed = true;
+            }
+            if ui
+                .button(tr!("Вставить диапазон", "Paste range"))
+                .on_hover_text(tr!(
+                    "Вставить текст из буфера как значения, начиная с активной ячейки; формулы не выполняются. Обычная вставка внутри редактора ячейки не перехватывается.",
+                    "Paste clipboard text as values starting at the active cell; formulas are not executed. Normal paste inside the cell editor is not intercepted."
+                ))
+                .clicked()
+            {
+                self.range_paste_requested = true;
             }
         });
         changed

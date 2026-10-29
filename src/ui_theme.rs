@@ -10,39 +10,325 @@ use eframe::egui::{
     self, Color32, FontFamily, FontId, Margin, Response, RichText, Rounding, Sense, Stroke,
     TextStyle, Ui, Vec2, Widget,
 };
+use liteoffice::theme::Theme;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// Palette — warm paper neutrals with a single deep-pine accent.
+// Themes
 // ---------------------------------------------------------------------------
 
-/// Window / canvas behind the page.
-pub const CANVAS: Color32 = Color32::from_rgb(0xEE, 0xEB, 0xE4);
-/// Bars and menus.
-pub const CHROME: Color32 = Color32::from_rgb(0xFA, 0xF8, 0xF4);
-/// Cards, menus, dialogs.
-pub const CARD: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-/// The paper itself.
-pub const PAGE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
+#[derive(Clone, Copy)]
+pub struct Palette {
+    pub canvas: Color32,
+    pub chrome: Color32,
+    pub card: Color32,
+    pub page: Color32,
+    pub ink: Color32,
+    pub muted: Color32,
+    pub faint: Color32,
+    pub line: Color32,
+    pub line_soft: Color32,
+    pub accent: Color32,
+    pub accent_hover: Color32,
+    pub accent_soft: Color32,
+    pub accent_ink: Color32,
+    pub on_accent: Color32,
+    pub warn: Color32,
+    pub warn_soft: Color32,
+    pub danger: Color32,
+    pub hover: Color32,
+    pub pressed: Color32,
+    pub field_bg: Color32,
+    pub field_ink: Color32,
+    pub text_bg: Color32,
+    pub text_ink: Color32,
+    pub disabled: Color32,
+    pub selection: Color32,
+    pub search_hit: Color32,
+    pub search_active: Color32,
+    pub link: Color32,
+    pub soft_bg: Color32,
+}
 
-pub const INK: Color32 = Color32::from_rgb(0x25, 0x23, 0x1F);
-pub const MUTED: Color32 = Color32::from_rgb(0x6D, 0x67, 0x5D);
-pub const FAINT: Color32 = Color32::from_rgb(0x97, 0x91, 0x85);
+pub fn palette_for(theme: Theme) -> Palette {
+    match theme {
+        Theme::Light => Palette {
+            canvas: Color32::from_rgb(0xEE, 0xEB, 0xE4),
+            chrome: Color32::from_rgb(0xFA, 0xF8, 0xF4),
+            card: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0x25, 0x23, 0x1F),
+            muted: Color32::from_rgb(0x6D, 0x67, 0x5D),
+            faint: Color32::from_rgb(0x7A, 0x74, 0x6A),
+            line: Color32::from_rgb(0xE1, 0xDC, 0xD1),
+            line_soft: Color32::from_rgb(0xE9, 0xE5, 0xDC),
+            accent: Color32::from_rgb(0x17, 0x6B, 0x5A),
+            accent_hover: Color32::from_rgb(0x11, 0x57, 0x49),
+            accent_soft: Color32::from_rgb(0xE2, 0xEF, 0xEA),
+            accent_ink: Color32::from_rgb(0x0E, 0x4A, 0x3F),
+            on_accent: Color32::WHITE,
+            warn: Color32::from_rgb(0xA8, 0x5A, 0x0B),
+            warn_soft: Color32::from_rgb(0xFB, 0xF0, 0xDE),
+            danger: Color32::from_rgb(0xA8, 0x28, 0x1E),
+            hover: Color32::from_rgb(0xF0, 0xEC, 0xE4),
+            pressed: Color32::from_rgb(0xE8, 0xE3, 0xD9),
+            field_bg: Color32::WHITE,
+            field_ink: Color32::from_rgb(0x25, 0x23, 0x1F),
+            text_bg: Color32::WHITE,
+            text_ink: Color32::from_rgb(0x25, 0x23, 0x1F),
+            disabled: Color32::from_rgba_unmultiplied(0x5F, 0x5A, 0x52, 230),
+            selection: Color32::from_rgba_unmultiplied(0xD9, 0x9A, 0x3F, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0x17, 0x6B, 0x5A),
+            soft_bg: Color32::from_rgb(0xF1, 0xED, 0xE5),
+        },
+        Theme::DarkBlue => Palette {
+            canvas: Color32::from_rgb(0x15, 0x22, 0x38),
+            chrome: Color32::from_rgb(0x1B, 0x2C, 0x47),
+            card: Color32::from_rgb(0x1F, 0x33, 0x50),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0xE6, 0xED, 0xF7),
+            muted: Color32::from_rgb(0xBF, 0xCC, 0xDE),
+            faint: Color32::from_rgb(0x9D, 0xAF, 0xC7),
+            line: Color32::from_rgb(0x31, 0x48, 0x66),
+            line_soft: Color32::from_rgb(0x26, 0x3A, 0x55),
+            accent: Color32::from_rgb(0x6F, 0xB3, 0xFF),
+            accent_hover: Color32::from_rgb(0x8D, 0xC6, 0xFF),
+            accent_soft: Color32::from_rgb(0x24, 0x3F, 0x60),
+            accent_ink: Color32::from_rgb(0xD7, 0xE9, 0xFF),
+            on_accent: Color32::from_rgb(0x0D, 0x1B, 0x2A),
+            warn: Color32::from_rgb(0xFF, 0xC4, 0x6B),
+            warn_soft: Color32::from_rgb(0x40, 0x32, 0x1D),
+            danger: Color32::from_rgb(0xFF, 0x8A, 0x80),
+            hover: Color32::from_rgb(0x24, 0x3B, 0x59),
+            pressed: Color32::from_rgb(0x2B, 0x46, 0x67),
+            field_bg: Color32::from_rgb(0x1B, 0x2B, 0x45),
+            field_ink: Color32::from_rgb(0xE6, 0xED, 0xF7),
+            text_bg: Color32::from_rgb(0x1B, 0x2B, 0x45),
+            text_ink: Color32::from_rgb(0xE6, 0xED, 0xF7),
+            disabled: Color32::from_rgba_unmultiplied(0xC7, 0xD3, 0xE3, 235),
+            selection: Color32::from_rgba_unmultiplied(0x7F, 0xB2, 0xFF, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0x8D, 0xC6, 0xFF),
+            soft_bg: Color32::from_rgb(0x24, 0x3B, 0x59),
+        },
+        Theme::Parchment => Palette {
+            canvas: Color32::from_rgb(0xF3, 0xE8, 0xD1),
+            chrome: Color32::from_rgb(0xFA, 0xF1, 0xDE),
+            card: Color32::from_rgb(0xFF, 0xF9, 0xEC),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0x40, 0x36, 0x2B),
+            muted: Color32::from_rgb(0x6B, 0x5B, 0x49),
+            faint: Color32::from_rgb(0x80, 0x6E, 0x59),
+            line: Color32::from_rgb(0xD9, 0xC8, 0xA9),
+            line_soft: Color32::from_rgb(0xE6, 0xD7, 0xBC),
+            accent: Color32::from_rgb(0x7A, 0x4E, 0x2D),
+            accent_hover: Color32::from_rgb(0x63, 0x3D, 0x20),
+            accent_soft: Color32::from_rgb(0xEA, 0xD7, 0xBC),
+            accent_ink: Color32::from_rgb(0x4B, 0x2E, 0x18),
+            on_accent: Color32::WHITE,
+            warn: Color32::from_rgb(0x8A, 0x4B, 0x0F),
+            warn_soft: Color32::from_rgb(0xF4, 0xDF, 0xC3),
+            danger: Color32::from_rgb(0x8F, 0x2D, 0x23),
+            hover: Color32::from_rgb(0xED, 0xE0, 0xC9),
+            pressed: Color32::from_rgb(0xE3, 0xD2, 0xB7),
+            field_bg: Color32::from_rgb(0xFF, 0xF9, 0xEC),
+            field_ink: Color32::from_rgb(0x40, 0x36, 0x2B),
+            text_bg: Color32::from_rgb(0xFF, 0xF9, 0xEC),
+            text_ink: Color32::from_rgb(0x40, 0x36, 0x2B),
+            disabled: Color32::from_rgba_unmultiplied(0x5A, 0x4A, 0x3A, 230),
+            selection: Color32::from_rgba_unmultiplied(0xB9, 0x7A, 0x3C, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0x7A, 0x4E, 0x2D),
+            soft_bg: Color32::from_rgb(0xED, 0xE0, 0xC9),
+        },
+        Theme::Sage => Palette {
+            canvas: Color32::from_rgb(0xE5, 0xEC, 0xE0),
+            chrome: Color32::from_rgb(0xF0, 0xF5, 0xEC),
+            card: Color32::from_rgb(0xFA, 0xFC, 0xF7),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0x28, 0x38, 0x2C),
+            muted: Color32::from_rgb(0x53, 0x64, 0x54),
+            faint: Color32::from_rgb(0x6B, 0x7B, 0x6A),
+            line: Color32::from_rgb(0xC9, 0xD6, 0xC5),
+            line_soft: Color32::from_rgb(0xD8, 0xE2, 0xD4),
+            accent: Color32::from_rgb(0x3E, 0x6B, 0x4F),
+            accent_hover: Color32::from_rgb(0x2F, 0x54, 0x3D),
+            accent_soft: Color32::from_rgb(0xD8, 0xE8, 0xDB),
+            accent_ink: Color32::from_rgb(0x24, 0x42, 0x2F),
+            on_accent: Color32::WHITE,
+            warn: Color32::from_rgb(0x8A, 0x5A, 0x12),
+            warn_soft: Color32::from_rgb(0xF1, 0xE4, 0xC9),
+            danger: Color32::from_rgb(0x8C, 0x2F, 0x2A),
+            hover: Color32::from_rgb(0xDC, 0xE8, 0xD7),
+            pressed: Color32::from_rgb(0xCF, 0xDD, 0xCA),
+            field_bg: Color32::from_rgb(0xFA, 0xFC, 0xF7),
+            field_ink: Color32::from_rgb(0x28, 0x38, 0x2C),
+            text_bg: Color32::from_rgb(0xFA, 0xFC, 0xF7),
+            text_ink: Color32::from_rgb(0x28, 0x38, 0x2C),
+            disabled: Color32::from_rgba_unmultiplied(0x42, 0x54, 0x43, 230),
+            selection: Color32::from_rgba_unmultiplied(0x6D, 0x9A, 0x6C, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0x3E, 0x6B, 0x4F),
+            soft_bg: Color32::from_rgb(0xDC, 0xE8, 0xD7),
+        },
+        Theme::WarmGraphite => Palette {
+            canvas: Color32::from_rgb(0x29, 0x26, 0x24),
+            chrome: Color32::from_rgb(0x30, 0x2C, 0x29),
+            card: Color32::from_rgb(0x38, 0x33, 0x30),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0xE8, 0xE0, 0xD5),
+            muted: Color32::from_rgb(0xC4, 0xB9, 0xAD),
+            faint: Color32::from_rgb(0xA9, 0x9D, 0x90),
+            line: Color32::from_rgb(0x4A, 0x42, 0x3D),
+            line_soft: Color32::from_rgb(0x3D, 0x37, 0x33),
+            accent: Color32::from_rgb(0xE0, 0xA3, 0x6B),
+            accent_hover: Color32::from_rgb(0xF0, 0xB7, 0x7E),
+            accent_soft: Color32::from_rgb(0x4A, 0x38, 0x28),
+            accent_ink: Color32::from_rgb(0xFF, 0xD7, 0xAE),
+            on_accent: Color32::from_rgb(0x21, 0x1A, 0x12),
+            warn: Color32::from_rgb(0xFF, 0xB8, 0x6B),
+            warn_soft: Color32::from_rgb(0x4A, 0x35, 0x20),
+            danger: Color32::from_rgb(0xFF, 0x8F, 0x84),
+            hover: Color32::from_rgb(0x3D, 0x38, 0x34),
+            pressed: Color32::from_rgb(0x49, 0x42, 0x3D),
+            field_bg: Color32::from_rgb(0x33, 0x2F, 0x2C),
+            field_ink: Color32::from_rgb(0xE8, 0xE0, 0xD5),
+            text_bg: Color32::from_rgb(0x33, 0x2F, 0x2C),
+            text_ink: Color32::from_rgb(0xE8, 0xE0, 0xD5),
+            disabled: Color32::from_rgba_unmultiplied(0xD8, 0xCC, 0xC0, 235),
+            selection: Color32::from_rgba_unmultiplied(0xE0, 0xA3, 0x6B, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0xE0, 0xA3, 0x6B),
+            soft_bg: Color32::from_rgb(0x3D, 0x38, 0x34),
+        },
+        Theme::AmberTerminal => Palette {
+            canvas: Color32::from_rgb(0x21, 0x1A, 0x12),
+            chrome: Color32::from_rgb(0x2A, 0x21, 0x17),
+            card: Color32::from_rgb(0x33, 0x28, 0x1B),
+            page: Color32::WHITE,
+            ink: Color32::from_rgb(0xE7, 0xBD, 0x78),
+            muted: Color32::from_rgb(0xC9, 0xA6, 0x6B),
+            faint: Color32::from_rgb(0xA9, 0x8A, 0x58),
+            line: Color32::from_rgb(0x4A, 0x3A, 0x25),
+            line_soft: Color32::from_rgb(0x3C, 0x2F, 0x1E),
+            accent: Color32::from_rgb(0xE7, 0xBD, 0x78),
+            accent_hover: Color32::from_rgb(0xF3, 0xCE, 0x8E),
+            accent_soft: Color32::from_rgb(0x4A, 0x38, 0x20),
+            accent_ink: Color32::from_rgb(0xFF, 0xE0, 0xA8),
+            on_accent: Color32::from_rgb(0x21, 0x1A, 0x12),
+            warn: Color32::from_rgb(0xFF, 0xC4, 0x6B),
+            warn_soft: Color32::from_rgb(0x3F, 0x2E, 0x18),
+            danger: Color32::from_rgb(0xFF, 0x8A, 0x80),
+            hover: Color32::from_rgb(0x3A, 0x2D, 0x1D),
+            pressed: Color32::from_rgb(0x46, 0x37, 0x22),
+            field_bg: Color32::from_rgb(0x2A, 0x21, 0x17),
+            field_ink: Color32::from_rgb(0xE7, 0xBD, 0x78),
+            text_bg: Color32::from_rgb(0x2A, 0x21, 0x17),
+            text_ink: Color32::from_rgb(0xE7, 0xBD, 0x78),
+            disabled: Color32::from_rgba_unmultiplied(0xD9, 0xB7, 0x7D, 235),
+            selection: Color32::from_rgba_unmultiplied(0xE7, 0xBD, 0x78, 104),
+            search_hit: Color32::from_rgb(0xFF, 0xF4, 0xB9),
+            search_active: Color32::from_rgb(0xFF, 0xD6, 0x78),
+            link: Color32::from_rgb(0xE7, 0xBD, 0x78),
+            soft_bg: Color32::from_rgb(0x3A, 0x2D, 0x1D),
+        },
+    }
+}
 
-pub const LINE: Color32 = Color32::from_rgb(0xE1, 0xDC, 0xD1);
-pub const LINE_SOFT: Color32 = Color32::from_rgb(0xE9, 0xE5, 0xDC);
+thread_local! {
+    static ACTIVE_THEME: std::cell::Cell<Theme> = const { std::cell::Cell::new(Theme::Light) };
+}
 
-pub const ACCENT: Color32 = Color32::from_rgb(0x17, 0x6B, 0x5A);
-pub const ACCENT_HOVER: Color32 = Color32::from_rgb(0x11, 0x57, 0x49);
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0xE2, 0xEF, 0xEA);
-pub const ACCENT_INK: Color32 = Color32::from_rgb(0x0E, 0x4A, 0x3F);
+pub fn activate(theme: Theme) {
+    ACTIVE_THEME.with(|active| active.set(theme));
+}
 
-pub const WARN: Color32 = Color32::from_rgb(0xA8, 0x5A, 0x0B);
-pub const WARN_SOFT: Color32 = Color32::from_rgb(0xFB, 0xF0, 0xDE);
-pub const DANGER: Color32 = Color32::from_rgb(0xA8, 0x28, 0x1E);
+pub fn current_theme() -> Theme {
+    ACTIVE_THEME.with(std::cell::Cell::get)
+}
 
-pub const HOVER: Color32 = Color32::from_rgb(0xF0, 0xEC, 0xE4);
-pub const PRESSED: Color32 = Color32::from_rgb(0xE8, 0xE3, 0xD9);
+fn palette() -> Palette {
+    palette_for(current_theme())
+}
+
+pub fn chrome() -> Color32 {
+    palette().chrome
+}
+pub fn card() -> Color32 {
+    palette().card
+}
+pub fn page() -> Color32 {
+    palette().page
+}
+pub fn ink() -> Color32 {
+    palette().ink
+}
+pub fn muted() -> Color32 {
+    palette().muted
+}
+pub fn faint() -> Color32 {
+    palette().faint
+}
+pub fn line() -> Color32 {
+    palette().line
+}
+pub fn accent() -> Color32 {
+    palette().accent
+}
+pub fn accent_hover() -> Color32 {
+    palette().accent_hover
+}
+pub fn accent_soft() -> Color32 {
+    palette().accent_soft
+}
+pub fn accent_ink() -> Color32 {
+    palette().accent_ink
+}
+pub fn warn() -> Color32 {
+    palette().warn
+}
+pub fn warn_soft() -> Color32 {
+    palette().warn_soft
+}
+pub fn danger() -> Color32 {
+    palette().danger
+}
+pub fn hover() -> Color32 {
+    palette().hover
+}
+pub fn pressed() -> Color32 {
+    palette().pressed
+}
+pub fn text_bg() -> Color32 {
+    palette().text_bg
+}
+pub fn text_ink() -> Color32 {
+    palette().text_ink
+}
+pub fn disabled() -> Color32 {
+    palette().disabled
+}
+pub fn selection() -> Color32 {
+    palette().selection
+}
+pub fn search_hit() -> Color32 {
+    palette().search_hit
+}
+pub fn search_active() -> Color32 {
+    palette().search_active
+}
+pub fn link() -> Color32 {
+    palette().link
+}
+pub fn soft_bg() -> Color32 {
+    palette().soft_bg
+}
 
 /// Height of the command bar and document strip, in points.
 pub const BAR_HEIGHT: f32 = 44.0;
@@ -86,17 +372,24 @@ pub fn heading_font(ctx: &egui::Context, size: f32) -> FontId {
 // Style installation
 // ---------------------------------------------------------------------------
 
-/// Apply the compact light theme. Called once per window, before the first
-/// frame is laid out.
-pub fn install(ctx: &egui::Context) {
+/// Apply the selected palette to widgets and install it for this window.
+/// Called once when the window is created and again when the theme changes.
+pub fn install(ctx: &egui::Context, theme: Theme) {
+    activate(theme);
+    let p = palette_for(theme);
     let mut style = (*ctx.style()).clone();
-    let mut visuals = egui::Visuals::light();
-    visuals.dark_mode = false;
+    let dark = !matches!(theme, Theme::Light | Theme::Parchment | Theme::Sage);
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    visuals.dark_mode = dark;
 
-    visuals.override_text_color = None;
-    visuals.panel_fill = CANVAS;
-    visuals.window_fill = CARD;
-    visuals.window_stroke = Stroke::new(1.0_f32, LINE);
+    visuals.override_text_color = Some(p.field_ink);
+    visuals.panel_fill = p.canvas;
+    visuals.window_fill = p.card;
+    visuals.window_stroke = Stroke::new(1.0_f32, p.line);
     visuals.window_rounding = Rounding::same(10.0);
     visuals.window_shadow = egui::epaint::Shadow {
         offset: egui::vec2(0.0, 8.0),
@@ -111,50 +404,50 @@ pub fn install(ctx: &egui::Context) {
         color: Color32::from_black_alpha(30),
     };
     visuals.menu_rounding = Rounding::same(8.0);
-    visuals.extreme_bg_color = Color32::WHITE;
-    visuals.faint_bg_color = Color32::from_rgb(0xF7, 0xF4, 0xEE);
-    visuals.code_bg_color = Color32::from_rgb(0xF3, 0xEF, 0xE8);
-    visuals.hyperlink_color = ACCENT;
-    visuals.warn_fg_color = WARN;
-    visuals.error_fg_color = DANGER;
-    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0xD9, 0x9A, 0x3F, 104);
-    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
-    visuals.text_cursor.stroke = Stroke::new(1.6_f32, INK);
+    visuals.extreme_bg_color = p.field_bg;
+    visuals.faint_bg_color = p.soft_bg;
+    visuals.code_bg_color = p.soft_bg;
+    visuals.hyperlink_color = link();
+    visuals.warn_fg_color = p.warn;
+    visuals.error_fg_color = p.danger;
+    visuals.selection.bg_fill = p.selection;
+    visuals.selection.stroke = Stroke::new(1.0_f32, p.accent);
+    visuals.text_cursor.stroke = Stroke::new(1.6_f32, p.ink);
     visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
     visuals.striped = false;
     visuals.indent_has_left_vline = false;
     visuals.window_highlight_topmost = false;
 
     let widgets = &mut visuals.widgets;
-    widgets.noninteractive.bg_fill = CARD;
-    widgets.noninteractive.weak_bg_fill = CARD;
-    widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, LINE);
+    widgets.noninteractive.bg_fill = p.card;
+    widgets.noninteractive.weak_bg_fill = p.card;
+    widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.line);
     widgets.noninteractive.rounding = Rounding::same(6.0);
-    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, INK);
+    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.ink);
 
-    widgets.inactive.bg_fill = Color32::from_rgb(0xF4, 0xF1, 0xEA);
+    widgets.inactive.bg_fill = p.soft_bg;
     widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, LINE_SOFT);
+    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.line_soft);
     widgets.inactive.rounding = Rounding::same(6.0);
-    widgets.inactive.fg_stroke = Stroke::new(1.0_f32, INK);
+    widgets.inactive.fg_stroke = Stroke::new(1.0_f32, p.ink);
 
-    widgets.hovered.bg_fill = Color32::from_rgb(0xF1, 0xED, 0xE5);
-    widgets.hovered.weak_bg_fill = HOVER;
-    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, LINE);
+    widgets.hovered.bg_fill = p.hover;
+    widgets.hovered.weak_bg_fill = p.hover;
+    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.line);
     widgets.hovered.rounding = Rounding::same(6.0);
-    widgets.hovered.fg_stroke = Stroke::new(1.0_f32, INK);
+    widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.ink);
 
-    widgets.active.bg_fill = ACCENT_SOFT;
-    widgets.active.weak_bg_fill = PRESSED;
-    widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    widgets.active.bg_fill = p.accent_soft;
+    widgets.active.weak_bg_fill = p.pressed;
+    widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
     widgets.active.rounding = Rounding::same(6.0);
-    widgets.active.fg_stroke = Stroke::new(1.0_f32, INK);
+    widgets.active.fg_stroke = Stroke::new(1.0_f32, p.ink);
 
-    widgets.open.bg_fill = ACCENT_SOFT;
-    widgets.open.weak_bg_fill = ACCENT_SOFT;
-    widgets.open.bg_stroke = Stroke::new(1.0_f32, LINE);
+    widgets.open.bg_fill = p.accent_soft;
+    widgets.open.weak_bg_fill = p.accent_soft;
+    widgets.open.bg_stroke = Stroke::new(1.0_f32, p.line);
     widgets.open.rounding = Rounding::same(6.0);
-    widgets.open.fg_stroke = Stroke::new(1.0_f32, INK);
+    widgets.open.fg_stroke = Stroke::new(1.0_f32, p.ink);
 
     style.visuals = visuals;
 
@@ -195,6 +488,21 @@ pub fn install(ctx: &egui::Context) {
     spacing.scroll = egui::style::ScrollStyle::thin();
 
     ctx.set_style(style);
+    ctx.data_mut(|data| data.insert_temp(theme_id(), theme));
+}
+
+fn theme_id() -> egui::Id {
+    egui::Id::new("notoffice.theme-installed")
+}
+
+/// Activate the window-local palette immediately. Widget styles are rebuilt
+/// only when this window's theme differs from the installed one.
+pub fn apply(ctx: &egui::Context, theme: Theme) {
+    activate(theme);
+    let installed = ctx.data(|data| data.get_temp::<Theme>(theme_id()));
+    if installed != Some(theme) {
+        install(ctx, theme);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +512,7 @@ pub fn install(ctx: &egui::Context) {
 pub fn hairline(ui: &mut Ui) {
     let width = 1.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, LINE);
+    ui.painter().rect_filled(rect, 0.0, palette().line);
 }
 
 /// A small rounded tag, e.g. `DOCX` or `RECOVERED`.
@@ -235,16 +543,24 @@ pub fn brand_mark(ui: &mut Ui, size: f32, filled: bool) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
     let rounding = Rounding::same(size * 0.26);
     if filled {
-        ui.painter().rect_filled(rect, rounding, ACCENT);
+        ui.painter().rect_filled(rect, rounding, palette().accent);
     } else {
         ui.painter()
-            .rect_stroke(rect, rounding, Stroke::new(1.2_f32, ACCENT));
+            .rect_stroke(rect, rounding, Stroke::new(1.2_f32, palette().accent));
     }
     let paper = egui::Rect::from_center_size(rect.center(), Vec2::new(size * 0.44, size * 0.58));
-    let paper_color = if filled { Color32::WHITE } else { ACCENT };
+    let paper_color = if filled {
+        Color32::WHITE
+    } else {
+        palette().accent
+    };
     ui.painter()
         .rect_filled(paper, Rounding::same(size * 0.06), paper_color);
-    let ink = if filled { ACCENT } else { Color32::WHITE };
+    let ink = if filled {
+        palette().accent
+    } else {
+        Color32::WHITE
+    };
     let stroke = Stroke::new((size * 0.055).max(0.8), ink);
     for factor in [0.32, 0.52, 0.72] {
         let y = paper.top() + paper.height() * factor;
@@ -266,7 +582,7 @@ pub fn brand(ui: &mut Ui) {
         RichText::new("NotOffice")
             .size(13.0)
             .family(heading_family(ui.ctx()))
-            .color(INK),
+            .color(palette().ink),
     );
 }
 
@@ -451,7 +767,7 @@ pub fn paint_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                     [point(2.6, y), point(13.4, y)],
                     Stroke::new(1.25_f32, color),
                 );
-                disc(painter, point(knob, y), 1.45 * scale, CHROME);
+                disc(painter, point(knob, y), 1.45 * scale, palette().chrome);
                 ring(
                     painter,
                     point(knob, y),
@@ -521,19 +837,19 @@ impl Widget for IconButton<'_> {
         let hovered = response.hovered() && enabled;
 
         if self.selected && enabled {
-            painter.rect_filled(rect, rounding, ACCENT_SOFT);
+            painter.rect_filled(rect, rounding, palette().accent_soft);
         } else if response.is_pointer_button_down_on() && enabled {
-            painter.rect_filled(rect, rounding, PRESSED);
+            painter.rect_filled(rect, rounding, pressed());
         } else if hovered {
-            painter.rect_filled(rect, rounding, HOVER);
+            painter.rect_filled(rect, rounding, hover());
         }
 
         let color = if !enabled {
-            Color32::from_rgba_unmultiplied(0x6D, 0x67, 0x5D, 205)
+            disabled()
         } else if self.selected {
-            ACCENT
+            palette().accent
         } else {
-            INK
+            palette().ink
         };
         paint_icon(
             painter,
@@ -566,22 +882,20 @@ impl Widget for PrimaryButton<'_> {
         let font = heading_font(ui.ctx(), 12.5);
         let galley = ui
             .painter()
-            .layout_no_wrap(self.text.to_owned(), font, Color32::WHITE);
+            .layout_no_wrap(self.text.to_owned(), font, palette().on_accent);
         let size = Vec2::new(galley.size().x + 24.0, 27.0);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let enabled = ui.is_enabled();
         let fill = if !enabled {
-            Color32::from_rgb(0xB6, 0xC8, 0xC1)
-        } else if response.is_pointer_button_down_on() {
-            ACCENT_HOVER
-        } else if response.hovered() {
-            Color32::from_rgb(0x13, 0x60, 0x51)
+            palette().disabled
+        } else if response.is_pointer_button_down_on() || response.hovered() {
+            accent_hover()
         } else {
-            ACCENT
+            palette().accent
         };
         ui.painter().rect_filled(rect, Rounding::same(6.0), fill);
         let origin = rect.center() - galley.size() * 0.5;
-        ui.painter().galley(origin, galley, Color32::WHITE);
+        ui.painter().galley(origin, galley, palette().on_accent);
         if enabled {
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         } else {
@@ -596,12 +910,12 @@ impl Widget for PrimaryButton<'_> {
 
 pub fn bar_frame() -> egui::Frame {
     egui::Frame::none()
-        .fill(CHROME)
+        .fill(chrome())
         .inner_margin(Margin::symmetric(10.0, 0.0))
 }
 
 pub fn strip_frame() -> egui::Frame {
-    egui::Frame::none().fill(CHROME).inner_margin(Margin {
+    egui::Frame::none().fill(chrome()).inner_margin(Margin {
         left: 12.0,
         right: 12.0,
         top: 4.0,
@@ -611,7 +925,7 @@ pub fn strip_frame() -> egui::Frame {
 
 pub fn status_frame() -> egui::Frame {
     egui::Frame::none()
-        .fill(Color32::from_rgb(0xF5, 0xF2, 0xEC))
+        .fill(soft_bg())
         .inner_margin(Margin::symmetric(12.0, 0.0))
 }
 
@@ -623,7 +937,7 @@ pub fn bottom_rule(ui: &Ui) {
             egui::pos2(rect.left(), rect.bottom()),
             egui::pos2(rect.right(), rect.bottom()),
         ],
-        Stroke::new(1.0_f32, LINE),
+        Stroke::new(1.0_f32, palette().line),
     );
 }
 
@@ -635,6 +949,59 @@ pub fn top_rule(ui: &Ui) {
             egui::pos2(rect.left(), rect.top()),
             egui::pos2(rect.right(), rect.top()),
         ],
-        Stroke::new(1.0_f32, LINE),
+        Stroke::new(1.0_f32, palette().line),
     );
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    fn luminance(color: Color32) -> f32 {
+        let convert = |value: u8| {
+            let value = value as f32 / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * convert(color.r()) + 0.7152 * convert(color.g()) + 0.0722 * convert(color.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn every_theme_keeps_ordinary_text_and_fields_above_4_5() {
+        for theme in Theme::ALL {
+            let p = palette_for(theme);
+            for (name, fg, bg) in [
+                ("canvas", p.ink, p.canvas),
+                ("chrome", p.ink, p.chrome),
+                ("card", p.ink, p.card),
+                ("field", p.field_ink, p.field_bg),
+            ] {
+                let ratio = contrast(fg, bg);
+                assert!(
+                    ratio >= 4.5,
+                    "{theme:?} {name} contrast {ratio:.2} is below 4.5"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn theme_labels_and_slugs_are_stable() {
+        for theme in Theme::ALL {
+            assert_eq!(Theme::from_slug(theme.slug()), theme);
+            assert!(!theme.label_ru().is_empty());
+            assert!(!theme.label_en().is_empty());
+        }
+        assert_eq!(Theme::from_slug("broken"), Theme::Light);
+        assert_eq!(Theme::from_slug(""), Theme::Light);
+        assert_eq!(Theme::default(), Theme::Light);
+    }
 }

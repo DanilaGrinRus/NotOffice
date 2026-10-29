@@ -7,6 +7,8 @@ mod ui_shell;
 mod ui_theme;
 use docx_view::*;
 use eframe::egui;
+use liteoffice::clean_copy;
+use liteoffice::clipboard;
 use liteoffice::doc::LegacyDocPackage;
 use liteoffice::docx::{DocumentModel, DocxPackage};
 use liteoffice::file_ops::{self, DocumentKind};
@@ -19,6 +21,7 @@ use liteoffice::spreadsheet_ui::{
     column_name as spreadsheet_column_name, SearchView as SpreadsheetSearchView,
     SpreadsheetDocument,
 };
+use liteoffice::theme::Theme;
 use liteoffice::workbook_edit::{CellFormat, CellKey};
 use liteoffice::xls::XlsPackage;
 use liteoffice::xlsx::{SpreadsheetModel, XlsxPackage};
@@ -327,9 +330,9 @@ fn render_legacy_doc(
                                         let matched = !search::ranges(paragraph, options.query, 1).is_empty();
                                         let active = options.current_hit.is_some_and(|hit| hit.target == SearchTarget::DocParagraph(*paragraph_index));
                                         let response = egui::Frame::none().fill(if active {
-                                            egui::Color32::from_rgb(255, 214, 120)
+                                            ui_theme::search_active()
                                         } else if matched {
-                                            egui::Color32::from_rgb(255, 244, 185)
+                                            ui_theme::search_hit()
                                         } else { egui::Color32::TRANSPARENT }).show(ui, |ui| {
                                         if links.len() == 1 && links[0].label.trim() == paragraph.trim() {
                                             ui.add(egui::Hyperlink::from_label_and_url(
@@ -550,7 +553,7 @@ fn main() -> eframe::Result<()> {
             // egui applies ctx.set_fonts() at the start of the next frame.
             liteoffice::i18n::load();
             install_windows_fonts(&cc.egui_ctx);
-            ui_theme::install(&cc.egui_ctx);
+            ui_theme::install(&cc.egui_ctx, Theme::Light);
             ui_theme::mark_fonts_ready(&cc.egui_ctx);
             let mut app = if start_blank_text {
                 NotOfficeApp::blank_text()
@@ -657,6 +660,7 @@ struct NotOfficeApp {
     fonts_initialized: bool,
     print_receiver: Option<std::sync::mpsc::Receiver<String>>,
     print_settings: print::PageSettings,
+    theme: Theme,
     document_view_rect: Option<egui::Rect>,
     /// Compact "Page setup" popover rendered by the redesigned shell.
     page_setup_open: bool,
@@ -679,22 +683,26 @@ fn preferences_path() -> Option<PathBuf> {
     Some(liteoffice::app_paths::file("NotOffice-settings.txt"))
 }
 
-fn load_preferences() -> (print::PageSettings, f32) {
+fn load_preferences() -> (print::PageSettings, f32, Theme) {
     preferences_path()
         .map(|path| preferences::load(&path))
-        .unwrap_or((print::PageSettings::default(), DEFAULT_VIEW_ZOOM))
+        .unwrap_or((
+            print::PageSettings::default(),
+            DEFAULT_VIEW_ZOOM,
+            Theme::Light,
+        ))
 }
 
-fn save_preferences(settings: print::PageSettings, zoom: f32) -> std::io::Result<()> {
+fn save_preferences(settings: print::PageSettings, zoom: f32, theme: Theme) -> std::io::Result<()> {
     let Some(path) = preferences_path() else {
         return Ok(());
     };
-    preferences::save(&path, settings, zoom)
+    preferences::save(&path, settings, zoom, theme)
 }
 
 impl Default for NotOfficeApp {
     fn default() -> Self {
-        let (saved_print_settings, saved_zoom) = load_preferences();
+        let (saved_print_settings, saved_zoom, saved_theme) = load_preferences();
         Self {
             pdf: None,
             text: None,
@@ -761,6 +769,7 @@ impl Default for NotOfficeApp {
             fonts_initialized: false,
             print_receiver: None,
             print_settings: saved_print_settings,
+            theme: saved_theme,
             document_view_rect: None,
             page_setup_open: false,
             search_active: false,
@@ -919,7 +928,7 @@ impl NotOfficeApp {
                     "PDF: raster only, no text search"
                 ))
                 .size(11.0)
-                .color(ui_theme::FAINT),
+                .color(ui_theme::faint()),
             );
             return;
         }
@@ -930,7 +939,7 @@ impl NotOfficeApp {
         ui.label(
             egui::RichText::new(tr!("Найти", "Find"))
                 .size(11.0)
-                .color(ui_theme::FAINT),
+                .color(ui_theme::faint()),
         );
         let id = egui::Id::new("liteoffice-global-search");
         let had_focus = ui.memory(|memory| memory.has_focus(id));
@@ -1028,14 +1037,14 @@ impl NotOfficeApp {
                 }
             ))
             .size(10.5)
-            .color(ui_theme::MUTED),
+            .color(ui_theme::muted()),
         );
         if ui
             .add(
                 egui::Button::new(
                     egui::RichText::new(tr!("Очистить замену", "Clear replacement"))
                         .size(11.0)
-                        .color(ui_theme::MUTED),
+                        .color(ui_theme::muted()),
                 )
                 .frame(false),
             )
@@ -1167,19 +1176,19 @@ impl NotOfficeApp {
                         "Replacement is available for DOCX and workbooks; this format is read-only"
                     ))
                         .size(10.5)
-                        .color(ui_theme::FAINT),
+                        .color(ui_theme::faint()),
                 );
             } else if self.search_results.limited {
                 ui.label(
                     egui::RichText::new(tr!("Уточните запрос (лимит 10 000 совпадений)", "Narrow the query (10,000 match limit)"))
                         .size(10.5)
-                        .color(ui_theme::WARN),
+                        .color(ui_theme::warn()),
                 );
             } else {
                 ui.label(
                     egui::RichText::new(tr!("Пустая замена удаляет текст; одно «Отменить» вернёт его", "Empty replacement deletes text; one Undo restores it"))
                         .size(10.5)
-                        .color(ui_theme::FAINT),
+                        .color(ui_theme::faint()),
                 );
             }
             if ui
@@ -1187,7 +1196,7 @@ impl NotOfficeApp {
                     egui::Button::new(
                         egui::RichText::new(tr!("Готово", "Done"))
                             .size(11.0)
-                            .color(ui_theme::MUTED),
+                            .color(ui_theme::muted()),
                     )
                     .frame(false),
                 )
@@ -3204,6 +3213,143 @@ impl NotOfficeApp {
         });
     }
 
+    fn clear_recent_files(&mut self) {
+        if self.recent_paths.is_empty() {
+            return;
+        }
+        let answer = rfd::MessageDialog::new()
+            .set_title(tr!(
+                "Очистить список недавних файлов?",
+                "Clear recent files?"
+            ))
+            .set_description(tr!(
+                "Список будет очищен. Сами документы на диске не удаляются.",
+                "The list will be cleared. Documents on disk will not be deleted."
+            ))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show();
+        if answer != rfd::MessageDialogResult::Yes {
+            return;
+        }
+        self.recent_paths.clear();
+        let result = recent_store_path()
+            .map(|path| liteoffice::recent::save_paths(&path, &self.recent_paths))
+            .unwrap_or(Ok(()));
+        self.status = match result {
+            Ok(()) => tr!("Список недавних файлов очищен", "Recent files cleared").into(),
+            Err(error) => tfm!(
+                "Список очищен в памяти, но не сохранён: {error}",
+                "Recent list cleared in memory, but not saved: {error}"
+            ),
+        };
+    }
+
+    fn open_recovery_folder(&mut self) {
+        let root = self
+            .recovery_root
+            .clone()
+            .unwrap_or_else(|| liteoffice::app_paths::data_dir().join("NotOffice-recovery"));
+        if let Err(error) = std::fs::create_dir_all(&root) {
+            self.status = tfm!(
+                "Не удалось открыть папку восстановления: {error}",
+                "Could not open the recovery folder: {error}"
+            );
+            return;
+        }
+        #[cfg(windows)]
+        let result = std::process::Command::new("explorer").arg(&root).spawn();
+        #[cfg(target_os = "macos")]
+        let result = std::process::Command::new("open").arg(&root).spawn();
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let result = std::process::Command::new("xdg-open").arg(&root).spawn();
+        self.status = match result {
+            Ok(_) => tfm!(
+                "Открыта папка восстановления: {}",
+                "Opened recovery folder: {}",
+                root.display()
+            ),
+            Err(error) => tfm!(
+                "Не удалось открыть папку восстановления: {error}",
+                "Could not open the recovery folder: {error}"
+            ),
+        };
+    }
+
+    fn paste_range_text(
+        &mut self,
+        text: &str,
+    ) -> Result<(usize, usize), liteoffice::range_paste::RangePasteError> {
+        if !self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.editor.is_some())
+        {
+            return Err(liteoffice::range_paste::RangePasteError::ReadOnly);
+        }
+        let before = self.workbook_snapshot();
+        let result = self
+            .spreadsheet
+            .as_mut()
+            .expect("spreadsheet checked above")
+            .paste_grid(text);
+        if result.is_ok() {
+            self.record_workbook_edit(before);
+            self.search_dirty = true;
+        }
+        result
+    }
+
+    fn paste_range_from_clipboard(&mut self) {
+        if !self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.editor.is_some())
+        {
+            self.status = tr!(
+                "Диапазон можно вставить только в редактируемую XLSX-копию",
+                "A range can be pasted only into an editable XLSX copy"
+            )
+            .into();
+            return;
+        }
+        let text = match clipboard::read_text() {
+            Ok(text) => text,
+            Err(error) => {
+                self.status = tfm!("Буфер обмена: {error}", "Clipboard: {error}");
+                return;
+            }
+        };
+        match self.paste_range_text(&text) {
+            Ok((rows, columns)) => {
+                self.status = tfm!(
+                    "Вставлен диапазон {} × {} (только значения; формулы не выполняются)",
+                    "Pasted {} × {} range (values only; formulas are not executed)",
+                    rows,
+                    columns
+                );
+            }
+            Err(error) => {
+                self.status = tfm!(
+                    "Диапазон не вставлен: {error}",
+                    "Range was not pasted: {error}"
+                );
+            }
+        }
+    }
+
+    fn set_theme(&mut self, theme: Theme) {
+        if self.theme == theme {
+            return;
+        }
+        self.theme = theme;
+        if let Err(error) = save_preferences(self.print_settings, self.zoom, self.theme) {
+            self.status = tfm!(
+                "Тема применена, но настройка не сохранена: {error}",
+                "Theme applied, but the preference was not saved: {error}"
+            );
+        }
+    }
+
     fn export_text(&mut self) {
         let Some(text) = self.plain_text() else {
             return;
@@ -3229,6 +3375,116 @@ impl NotOfficeApp {
                     "Не удалось экспортировать текст: {error}",
                     "Text export failed: {error}"
                 )
+            }
+        }
+    }
+
+    fn create_clean_copy(&mut self) {
+        let Some(source) = self.opened_path.clone() else {
+            self.status = tr!("Сначала откройте документ", "Open a document first").into();
+            return;
+        };
+        let docx_source = self.docx.is_some();
+        let legacy_source = self.legacy_doc.is_some();
+        let workbook_source = self.spreadsheet.is_some();
+        if !docx_source && !legacy_source && !workbook_source {
+            self.status = tr!(
+                "Копия без активного содержимого доступна для DOC/DOCX и XLS/XLSX",
+                "Clean copy is available for DOC/DOCX and XLS/XLSX"
+            )
+            .into();
+            return;
+        }
+        let extension = if workbook_source { "xlsx" } else { "docx" };
+        let stem = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("document");
+        let warning = tr!(
+            "Будет создана отдельная копия. Переносятся только текст, таблицы, значения ячеек и растровые изображения. Формулы, макросы, VBA, ActiveX/OLE, вложения, внешние подключения, поля и часть оформления будут потеряны. Кеш значений формул может быть устаревшим. Это не антивирус и не гарантия отсутствия всех угроз. Оригинал не изменится.",
+            "A separate copy will be created. Only text, tables, cell values and raster images are transferred. Formulas, macros, VBA, ActiveX/OLE, attachments, external connections, fields and some formatting will be lost. Cached formula values may be stale. This is not an antivirus and does not guarantee the absence of every threat. The original will not change."
+        );
+        let answer = rfd::MessageDialog::new()
+            .set_title(tr!(
+                "Создать копию без активного содержимого?",
+                "Create a passive-only copy?"
+            ))
+            .set_description(warning)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show();
+        if answer != rfd::MessageDialogResult::Yes {
+            self.status = tr!("Создание копии отменено", "Clean copy cancelled").into();
+            return;
+        }
+        let mut dialog = rfd::FileDialog::new()
+            .set_file_name(format!("{stem}-clean.{extension}"))
+            .add_filter(
+                if workbook_source {
+                    tr!("Книга Excel", "Excel workbook")
+                } else {
+                    tr!("Документ Word", "Word document")
+                },
+                &[extension],
+            );
+        if let Some(parent) = source.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+        let Some(destination) = dialog.save_file() else {
+            self.status = tr!("Создание копии отменено", "Clean copy cancelled").into();
+            return;
+        };
+        let result = if workbook_source {
+            self.spreadsheet.as_ref().map_or_else(
+                || {
+                    Err(liteoffice::docx::DocxError::UnsafeSave(
+                        "no workbook".into(),
+                    ))
+                },
+                |book| {
+                    clean_copy::clean_workbook(&source, &book.sheets, &book.formats, &destination)
+                },
+            )
+        } else if legacy_source {
+            let Some(legacy) = self.legacy_doc.as_ref() else {
+                return;
+            };
+            match liteoffice::docx::DocxPackage::from_legacy(
+                &source,
+                legacy,
+                &self.doc_image_anchors,
+                &self.doc_image_widths,
+            ) {
+                Ok(package) => clean_copy::clean_docx(&source, &package, &destination),
+                Err(error) => Err(error),
+            }
+        } else {
+            let Some(package) = self.docx.as_ref() else {
+                return;
+            };
+            clean_copy::clean_docx(&source, package, &destination)
+        };
+        match result {
+            Ok(report) => {
+                self.status = tfm!(
+                    "Копия без активного содержимого создана: {}",
+                    "Passive-only copy created: {}",
+                    destination.display()
+                );
+                let _ = rfd::MessageDialog::new()
+                    .set_title(tr!("Копия создана", "Copy created"))
+                    .set_description(format!(
+                        "{}\n\nОригинал не изменён.\n{}",
+                        report.summary(),
+                        tr!(
+                            "Функция исключает перечисленные категории активного содержимого, но не является антивирусом и не гарантирует отсутствие любых возможных угроз.",
+                            "This function excludes the listed categories of active content, but it is not an antivirus and does not guarantee the absence of every possible threat."
+                        )
+                    ))
+                    .set_buttons(rfd::MessageButtons::Ok)
+                    .show();
+            }
+            Err(error) => {
+                self.status = tfm!("Копия не создана: {error}", "Clean copy failed: {error}")
             }
         }
     }
@@ -3808,9 +4064,10 @@ impl NotOfficeApp {
                 }
             }
         }
+        ui_theme::apply(ctx, self.theme);
         if !self.fonts_initialized {
             install_windows_fonts(ctx);
-            ui_theme::install(ctx);
+            ui_theme::install(ctx, self.theme);
             self.fonts_initialized = true;
         } else if !ui_theme::fonts_ready(ctx) {
             // A full frame has passed: egui applied the new definitions while
@@ -3896,10 +4153,17 @@ impl NotOfficeApp {
         let previous_zoom = self.zoom;
         self.shell_command_bar(ctx);
         self.shell_document_strip(ctx);
+        if self
+            .spreadsheet
+            .as_mut()
+            .is_some_and(|book| book.take_range_paste_request())
+        {
+            self.paste_range_from_clipboard();
+        }
         if self.print_settings != previous_page_settings
             || (self.zoom - previous_zoom).abs() > 0.0001
         {
-            if let Err(err) = save_preferences(self.print_settings, self.zoom) {
+            if let Err(err) = save_preferences(self.print_settings, self.zoom, self.theme) {
                 self.status = tfm!(
                     "Не удалось сохранить настройки просмотра: {err}",
                     "Could not save view preferences: {err}"
@@ -3949,9 +4213,10 @@ impl NotOfficeApp {
                 egui::ScrollArea::vertical()
                     .id_source(("plain-text-scroll", self.docx_editor_generation))
                     .show(ui, |ui| {
-                        ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
+                        ui.visuals_mut().extreme_bg_color = ui_theme::text_bg();
+                        ui.visuals_mut().selection.bg_fill = ui_theme::selection();
                         ui.visuals_mut().text_cursor.stroke =
-                            egui::Stroke::new(2.0_f32, egui::Color32::BLACK);
+                            egui::Stroke::new(2.0_f32, ui_theme::text_ink());
                         let id = egui::Id::new(("plain-text", self.docx_editor_generation));
                         if self.text_focus_pending && ui.is_enabled() && ui.input(|i| i.focused) {
                             ui.memory_mut(|m| m.request_focus(id));
@@ -3976,7 +4241,7 @@ impl NotOfficeApp {
                             egui::TextEdit::multiline(&mut document.text)
                                 .id(id)
                                 .font(egui::FontId::monospace(14.0 * self.zoom))
-                                .text_color(egui::Color32::BLACK)
+                                .text_color(ui_theme::text_ink())
                                 .char_limit(8 * 1024 * 1024),
                         );
                         self.text_input_id = Some(response.id);
@@ -4046,7 +4311,7 @@ impl NotOfficeApp {
                                         ui.add_space(24.0 * self.zoom);
                                     }
                                     egui::Frame::none()
-                                        .fill(ui_theme::PAGE)
+                                        .fill(ui_theme::page())
                                         .stroke(egui::Stroke::new(
                                             1.0_f32,
                                             egui::Color32::from_rgb(0xD8, 0xD1, 0xC3),
@@ -4349,7 +4614,7 @@ mod preferences_tests {
     use super::*;
     #[test]
     fn default_preferences_are_within_limits() {
-        let (settings, zoom) = load_preferences();
+        let (settings, zoom, _theme) = load_preferences();
         assert!((5.0..=40.0).contains(&settings.margin_mm));
         assert!((MIN_VIEW_ZOOM..=MAX_VIEW_ZOOM).contains(&zoom));
     }

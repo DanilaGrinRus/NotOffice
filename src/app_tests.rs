@@ -27,6 +27,43 @@ fn document(paragraphs: Vec<Paragraph>) -> DocumentModel {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
+fn theme_switches_are_local_and_do_not_touch_document_history_or_print_settings() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("theme-source.docx");
+    write_docx_fixture(&path, "Исходный текст");
+    let package = DocxPackage::open(&path).unwrap();
+    let model = package.model.clone();
+    let mut first = NotOfficeApp::default();
+    first.theme = Theme::Light;
+    first.docx = Some(package);
+    first.opened_path = Some(path.clone());
+    first.saved_docx_model = Some(model.clone());
+    first.print_settings.margin_mm = 19.0;
+    first.zoom = 1.25;
+    let dirty = first.is_dirty();
+    let undo = first.undo_stack.len();
+    let pages = first.print_settings;
+    let original_bytes = std::fs::read(&path).unwrap();
+
+    first.set_theme(Theme::DarkBlue);
+    assert_eq!(first.theme, Theme::DarkBlue);
+    assert_eq!(first.docx.as_ref().unwrap().model, model);
+    assert_eq!(first.is_dirty(), dirty);
+    assert_eq!(first.undo_stack.len(), undo);
+    assert_eq!(first.print_settings, pages);
+    assert!((first.zoom - 1.25).abs() < f32::EPSILON);
+    assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
+
+    let mut second = NotOfficeApp::default();
+    second.theme = Theme::Parchment;
+    assert_eq!(first.theme, Theme::DarkBlue);
+    assert_eq!(second.theme, Theme::Parchment);
+    first.set_theme(Theme::Light);
+    assert_eq!(second.theme, Theme::Parchment);
+}
+
+#[test]
 fn ctrl_wheel_zoom_uses_factor_direction_and_existing_bounds() {
     let zoomed_in = ctrl_wheel_document_zoom(1.25, true, true, false, 1.10).unwrap();
     let zoomed_out = ctrl_wheel_document_zoom(1.25, true, true, false, 0.90).unwrap();
@@ -2706,6 +2743,85 @@ fn workbook_undo_redo_restores_values_and_formatting() {
             bold: true
         }
     );
+}
+
+#[test]
+fn paste_range_is_one_undo_values_only_and_protects_read_only_source() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("paste-source.xlsx");
+    let original = b"protected original";
+    std::fs::write(&source, original).unwrap();
+    let mut app = NotOfficeApp {
+        opened_path: Some(source.clone()),
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "Данные".into(),
+                cells: vec![liteoffice::xlsx::SpreadsheetCell {
+                    row: 2,
+                    column: 1,
+                    value: "старое".into(),
+                }],
+                row_count: 3,
+                column_count: 2,
+            },
+        ])),
+        ..Default::default()
+    };
+    app.edit_workbook_copy();
+    app.spreadsheet.as_mut().unwrap().selected_cell = Some((2, 1));
+    let undo_before = app.workbook_undo.len();
+    let (rows, columns) = app
+        .paste_range_text("A\tB\r\n=1+1\t\r\nC\t\tD\r\n")
+        .unwrap();
+    assert_eq!((rows, columns), (3, 3));
+    assert_eq!(app.workbook_undo.len(), undo_before + 1);
+    for (row, column, expected) in [
+        (2, 1, "A"),
+        (2, 2, "B"),
+        (2, 3, ""),
+        (3, 1, "=1+1"),
+        (3, 2, ""),
+        (3, 3, ""),
+        (4, 1, "C"),
+        (4, 2, ""),
+        (4, 3, "D"),
+    ] {
+        assert_eq!(
+            app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(row, column),
+            expected,
+            "{row},{column}"
+        );
+    }
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    app.undo();
+    assert_eq!(
+        app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(2, 1),
+        "старое"
+    );
+    assert_eq!(
+        app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(3, 1),
+        ""
+    );
+
+    let mut read_only = NotOfficeApp {
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel::default(),
+        ])),
+        ..Default::default()
+    };
+    assert_eq!(
+        read_only.paste_range_text("X\tY"),
+        Err(liteoffice::range_paste::RangePasteError::ReadOnly)
+    );
+    assert!(read_only.workbook_undo.is_empty());
+    assert_eq!(
+        read_only.spreadsheet.as_ref().unwrap().sheets[0].cell_value(0, 0),
+        ""
+    );
+
+    let too_many = "x\t".repeat(liteoffice::range_paste::MAX_PASTE_COLUMNS + 1);
+    assert!(app.paste_range_text(&too_many).is_err());
+    assert_eq!(app.workbook_undo.len(), undo_before);
 }
 
 #[test]

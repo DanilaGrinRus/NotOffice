@@ -1,6 +1,6 @@
 # Платформы NotOffice 1.0
 
-Состояние на 26.10.2026. Windows 1.0.0 — финальный принятый выпуск; Linux и macOS —
+Состояние на 26.10.2026. Windows 1.1.0 — текущая сборка; принятый 1.0.0 сохранён отдельно; Linux и macOS —
 экспериментальные, без печати и просмотра PDF.
 
 Windows EXE пересобран после исправления XLSB (фильтрация типов листов и
@@ -12,7 +12,7 @@ Linux/macOS по-прежнему не выполнена.
 
 | Платформа | Сборка | Что работает | Чего нет |
 |---|---|---|---|
-| Windows 10/11 x64 | готовая `NotOffice-1.0.0.exe` | всё, включая печать и PDF | — |
+| Windows 10/11 x64 | готовая `NotOffice-1.3.0.exe` | всё, включая печать и PDF | — |
 | Linux x86_64 (Debian/Ubuntu) | готовый tar.gz и `.deb` | редактирование DOCX/XLSX/TXT/MD/RTF, recovery, RU/EN | печать, просмотр/печать PDF |
 | macOS x86_64/arm64 | только исходники и CI-скрипт | компилируется, редактирование | готового `.app` нет; печать/PDF только Windows |
 
@@ -89,7 +89,7 @@ bash packaging/macos/build-macos.sh
 | `cargo check --target x86_64-apple-darwin` | PASS |
 | `cargo check --target x86_64-unknown-linux-gnu` | PASS |
 | `cargo build --release --target x86_64-unknown-linux-musl` | PASS |
-| `cargo test --all-targets` (Windows) | 219 passed, 9 ignored |
+| `cargo test --all-targets` (Windows) | 239 passed, 9 ignored |
 | ELF x86-64, static PIE | PASS (заголовок) |
 | запуск Linux GUI | NOT VERIFIED |
 | сборка `.app` на macOS | NOT VERIFIED (нет Mac) |
