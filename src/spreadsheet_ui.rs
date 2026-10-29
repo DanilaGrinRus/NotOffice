@@ -20,11 +20,14 @@ pub struct SpreadsheetDocument {
     pub range_paste_requested: bool,
     pub selection: TableSelection,
     pub horizontal_offset: f32,
+    pub vertical_offset: f32,
     pub decimal_places: Option<u8>,
     pub formula_input: String,
     pub formula_message: Option<String>,
     /// Set by a double-click on a read-only cell; the shell opens the edit dialog.
     pub cell_edit_request: Option<(usize, usize, String)>,
+    pub freeze_top_row: bool,
+    pub freeze_left_column: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -366,6 +369,22 @@ impl SpreadsheetDocument {
                         );
                     }
                 });
+            ui.checkbox(
+                &mut self.freeze_top_row,
+                tr!("Закрепить верхнюю строку", "Freeze top row"),
+            )
+            .on_hover_text(tr!(
+                "Первая строка остаётся видимой при вертикальной прокрутке",
+                "Keep the first row visible while scrolling vertically"
+            ));
+            ui.checkbox(
+                &mut self.freeze_left_column,
+                tr!("Закрепить левый столбец", "Freeze left column"),
+            )
+            .on_hover_text(tr!(
+                "Первый столбец остаётся видимым при горизонтальной прокрутке",
+                "Keep the first column visible while scrolling horizontally"
+            ));
             if ui
                 .add(egui::Button::new("◀"))
                 .on_hover_text(tr!("Сдвинуть таблицу влево", "Move table left"))
@@ -406,6 +425,7 @@ impl SpreadsheetDocument {
             sheet: self.selected_sheet,
             focus: self.focus_pending,
             horizontal_offset: self.horizontal_offset,
+            vertical_offset: self.vertical_offset,
             ..Default::default()
         };
         let Some(sheet) = self.selected_sheet() else {
@@ -423,6 +443,7 @@ impl SpreadsheetDocument {
         );
         self.selection = table_selection;
         self.horizontal_offset = edit.horizontal_offset;
+        self.vertical_offset = edit.vertical_offset;
         self.input_id = edit.input_id;
         self.input_rect = edit.input_rect;
         if edit.focus_used {
@@ -487,6 +508,7 @@ struct InlineEdit {
     changes: Vec<(usize, usize, String)>,
     navigate: Option<(usize, usize)>,
     horizontal_offset: f32,
+    vertical_offset: f32,
     fill: Option<(usize, usize, usize)>,
     submit: Option<(usize, usize, String)>,
     dialog: Option<(usize, usize)>,
@@ -511,6 +533,140 @@ fn format_display_value(value: &str, decimals: Option<u8>) -> String {
         return value.to_owned();
     };
     crate::table_formula::format_number(number, Some(decimals))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_frozen_panes(
+    ui: &egui::Ui,
+    sheet: &SpreadsheetModel,
+    viewport: egui::Rect,
+    offset: egui::Vec2,
+    columns: &std::ops::Range<usize>,
+    rows: &std::ops::Range<usize>,
+    column_widths: &[f32],
+    zoom: f32,
+    search: &SearchView<'_>,
+) {
+    if !search.freeze_top_row && !search.freeze_left_column {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(viewport);
+    let row_header = 32.0 * zoom;
+    let header_height = 26.0 * zoom;
+    let row_height = 22.0 * zoom;
+    let spacing = 2.0 * zoom;
+    let text = egui::Color32::from_rgb(37, 35, 31);
+    let muted = egui::Color32::from_rgb(105, 99, 91);
+    let border = egui::Color32::from_gray(205);
+    let background = egui::Color32::from_rgb(245, 242, 235);
+    let font = egui::FontId::proportional(12.0 * zoom);
+    let small = egui::FontId::proportional(10.5 * zoom);
+
+    if search.freeze_left_column && offset.x > 0.5 {
+        let first_width = column_widths.first().copied().unwrap_or(90.0 * zoom);
+        let left_rect = egui::Rect::from_min_max(
+            viewport.left_top(),
+            egui::pos2(
+                (viewport.left() + row_header + first_width + spacing).min(viewport.right()),
+                viewport.bottom(),
+            ),
+        );
+        painter.rect_filled(left_rect, 0.0, background);
+        painter.line_segment(
+            [left_rect.right_top(), left_rect.right_bottom()],
+            egui::Stroke::new(1.0_f32, border),
+        );
+        for (index, row) in rows.clone().enumerate() {
+            let y = viewport.top() - offset.y
+                + header_height
+                + row_height * index as f32
+                + row_height / 2.0;
+            if y < viewport.top() - row_height || y > viewport.bottom() + row_height {
+                continue;
+            }
+            painter.text(
+                egui::pos2(viewport.left() + row_header / 2.0, y),
+                egui::Align2::CENTER_CENTER,
+                (row + 1).to_string(),
+                small.clone(),
+                muted,
+            );
+            painter.text(
+                egui::pos2(viewport.left() + row_header + first_width / 2.0, y),
+                egui::Align2::CENTER_CENTER,
+                format_display_value(sheet.cell_value(row, columns.start), search.decimals)
+                    .chars()
+                    .take(20)
+                    .collect::<String>(),
+                font.clone(),
+                text,
+            );
+        }
+    }
+
+    if search.freeze_top_row && offset.y > 0.5 {
+        let top_rect = egui::Rect::from_min_max(
+            viewport.left_top(),
+            egui::pos2(
+                viewport.right(),
+                (viewport.top() + header_height + row_height + spacing).min(viewport.bottom()),
+            ),
+        );
+        painter.rect_filled(top_rect, 0.0, background);
+        painter.line_segment(
+            [top_rect.left_bottom(), top_rect.right_bottom()],
+            egui::Stroke::new(1.0_f32, border),
+        );
+        let mut x = viewport.left() - offset.x + row_header + spacing;
+        for (index, column) in columns.clone().enumerate() {
+            let width = column_widths.get(index).copied().unwrap_or(90.0 * zoom);
+            if x + width > viewport.left() && x < viewport.right() {
+                painter.text(
+                    egui::pos2(x + width / 2.0, viewport.top() + header_height / 2.0),
+                    egui::Align2::CENTER_CENTER,
+                    column_name(column),
+                    font.clone(),
+                    text,
+                );
+                painter.text(
+                    egui::pos2(
+                        x + width / 2.0,
+                        viewport.top() + header_height + row_height / 2.0,
+                    ),
+                    egui::Align2::CENTER_CENTER,
+                    format_display_value(sheet.cell_value(rows.start, column), search.decimals)
+                        .chars()
+                        .take(20)
+                        .collect::<String>(),
+                    font.clone(),
+                    text,
+                );
+            }
+            x += width + spacing;
+        }
+        // Keep the top-left corner readable when both panes are frozen.
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                viewport.left_top(),
+                egui::pos2(
+                    viewport.left() + row_header,
+                    viewport.top() + header_height + row_height,
+                ),
+            ),
+            0.0,
+            background,
+        );
+        painter.text(
+            egui::pos2(
+                viewport.left() + row_header / 2.0,
+                viewport.top() + header_height + row_height / 2.0,
+            ),
+            egui::Align2::CENTER_CENTER,
+            (rows.start + 1).to_string(),
+            small,
+            muted,
+        );
+    }
 }
 
 fn column_widths(
@@ -557,6 +713,8 @@ pub struct SearchView<'a> {
     )>,
     pub editable: bool,
     pub decimals: Option<u8>,
+    pub freeze_top_row: bool,
+    pub freeze_left_column: bool,
 }
 
 fn preview_range(
@@ -900,7 +1058,19 @@ fn render_cells(
                 });
             if let Some(edit) = edit.as_mut() {
                 edit.horizontal_offset = scroll_output.state.offset.x;
+                edit.vertical_offset = scroll_output.state.offset.y;
             }
+            draw_frozen_panes(
+                ui,
+                sheet,
+                scroll_output.inner_rect,
+                scroll_output.state.offset,
+                &columns,
+                &rows,
+                &column_widths,
+                zoom,
+                search,
+            );
             if sheet.row_count > MAX_PREVIEW_ROWS || sheet.column_count > MAX_PREVIEW_COLUMNS {
                 ui.add_space(8.0 * zoom);
                 ui.label(

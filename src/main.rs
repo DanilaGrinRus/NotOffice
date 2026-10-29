@@ -4492,6 +4492,8 @@ impl NotOfficeApp {
                         formats: Some((&formats, book.selected_sheet)),
                         editable: book.editor.is_some(),
                         decimals: book.decimal_places,
+                        freeze_top_row: book.freeze_top_row,
+                        freeze_left_column: book.freeze_left_column,
                     };
                     book.show_grid(ui, self.zoom, &view, self.docx_editor_generation)
                 };

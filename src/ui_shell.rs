@@ -1113,6 +1113,22 @@ impl NotOfficeApp {
                 "Откроется диалог «Изменить данные»; будет создана редактируемая XLSX-копия",
                 "Opens the Edit data dialog; an editable XLSX copy is created"
             ));
+            ui.checkbox(
+                &mut book.freeze_top_row,
+                RichText::new(tr!("Закрепить верхнюю строку", "Freeze top row")).size(11.0),
+            )
+            .on_hover_text(tr!(
+                "Первая строка остаётся видимой при вертикальной прокрутке",
+                "Keep the first row visible while scrolling vertically"
+            ));
+            ui.checkbox(
+                &mut book.freeze_left_column,
+                RichText::new(tr!("Закрепить левый столбец", "Freeze left column")).size(11.0),
+            )
+            .on_hover_text(tr!(
+                "Первый столбец остаётся видимым при горизонтальной прокрутке",
+                "Keep the first column visible while scrolling horizontally"
+            ));
         }
     }
 
