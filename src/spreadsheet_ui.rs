@@ -421,17 +421,28 @@ impl SpreadsheetDocument {
         }
         let mut changed = deleted_selection || !edit.changes.is_empty();
         let submit = edit.submit;
+        let mut submitted_applied = false;
         for (row, column, text) in edit.changes {
-            let value = if submit
+            let is_submit = submit
                 .as_ref()
                 .is_some_and(|(submit_row, submit_column, _)| {
                     *submit_row == row && *submit_column == column
-                }) {
+                });
+            let value = if is_submit {
+                submitted_applied = true;
                 self.evaluate_cell_input(row, column, &text).unwrap_or(text)
             } else {
                 text
             };
             self.set_cell_text(row, column, value);
+        }
+        if let Some((row, column, text)) = submit {
+            if !submitted_applied {
+                if let Some(value) = self.evaluate_cell_input(row, column, &text) {
+                    self.set_cell_text(row, column, value);
+                    changed = true;
+                }
+            }
         }
         if let Some((source_row, column, target_row)) = edit.fill {
             changed |= self.fill_down(source_row, column, target_row);

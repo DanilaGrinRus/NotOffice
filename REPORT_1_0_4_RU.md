@@ -51,9 +51,9 @@
 
 ## Сборка
 
-- `NotOffice-1.0.4.exe` — 4 536 832 байта.
+- `NotOffice-1.0.4.exe` — 4 536 320 байт.
 - Архивы portable/sources и `SHA256SUMS.txt` — рядом.
 
 Принятый 1.0.0 сохранён; 1.0.3 заменён текущей сборкой. SHA-256:
-`D38850707C7BE63B0C30B3F892205726142BDDA5E720D8C155BC7FB8F15172BA`.
+`C04F76A7EB888AFCA1EB382612ADD0052BAC6CAE172DF19155DF0E768BC96786`.
 Снимки: `evidence/ui-fixes-1.0.4/`.
