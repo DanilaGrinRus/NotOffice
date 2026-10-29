@@ -23,6 +23,8 @@ pub struct SpreadsheetDocument {
     pub decimal_places: Option<u8>,
     pub formula_input: String,
     pub formula_message: Option<String>,
+    /// Set by a double-click on a read-only cell; the shell opens the edit dialog.
+    pub cell_edit_request: Option<(usize, usize, String)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -106,6 +108,10 @@ impl SpreadsheetDocument {
             }
         }
         Ok((grid.rows, grid.columns))
+    }
+
+    pub fn take_cell_edit_request(&mut self) -> Option<(usize, usize, String)> {
+        self.cell_edit_request.take()
     }
 
     pub fn take_range_paste_request(&mut self) -> bool {
@@ -392,13 +398,6 @@ impl SpreadsheetDocument {
             horizontal_offset: self.horizontal_offset,
             ..Default::default()
         };
-        let delete_pressed = (self.selection.row.is_some() || self.selection.column.is_some())
-            && ui.memory(|memory| memory.focused().is_none())
-            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
-        let mut deleted_selection = false;
-        if delete_pressed {
-            deleted_selection = self.delete_selected_row_or_column();
-        }
         let Some(sheet) = self.selected_sheet() else {
             return false;
         };
@@ -419,7 +418,7 @@ impl SpreadsheetDocument {
         if edit.focus_used {
             self.focus_pending = false;
         }
-        let mut changed = deleted_selection || !edit.changes.is_empty();
+        let mut changed = !edit.changes.is_empty();
         let submit = edit.submit;
         let mut submitted_applied = false;
         for (row, column, text) in edit.changes {
@@ -457,6 +456,12 @@ impl SpreadsheetDocument {
                 ui.ctx().request_repaint();
             }
         }
+        if let Some((row, column)) = edit.dialog {
+            if let Some(sheet) = self.selected_sheet() {
+                self.cell_edit_request =
+                    Some((row, column, sheet.cell_value(row, column).to_owned()));
+            }
+        }
         changed
     }
 }
@@ -474,6 +479,7 @@ struct InlineEdit {
     horizontal_offset: f32,
     fill: Option<(usize, usize, usize)>,
     submit: Option<(usize, usize, String)>,
+    dialog: Option<(usize, usize)>,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -628,33 +634,41 @@ fn render_cells(
                 );
                 ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
             }
-            ui.add_space(8.0 * zoom);
-            ui.horizontal(|ui| {
-                ui.add_sized([32.0 * zoom, 24.0 * zoom], egui::Label::new(""));
-                for (column, width) in columns.clone().zip(&column_widths) {
-                    let response = ui.add_sized(
-                        [*width, 24.0 * zoom],
-                        egui::Label::new(
-                            egui::RichText::new(column_name(column))
-                                .strong()
-                                .size(body_size)
-                                .color(egui::Color32::BLACK),
-                        )
-                        .sense(egui::Sense::click()),
+            if let Some(edit) = edit.as_mut() {
+                ui.add_space(2.0 * zoom);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(tr!("Положение таблицы", "Table position"))
+                            .size(small_size)
+                            .color(egui::Color32::DARK_GRAY),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut edit.horizontal_offset, 0.0..=5_000.0)
+                            .show_value(false),
                     )
-                    .on_hover_cursor(egui::CursorIcon::ResizeVertical)
-                    .on_hover_text(tr!("Выделить столбец", "Select column"));
-                    if response.clicked() {
-                        if let Some(focused) = ui.memory(|memory| memory.focused()) {
-                            ui.memory_mut(|memory| memory.surrender_focus(focused));
-                        }
-                        if let Some(selection) = selection.as_deref_mut() {
-                            selection.column = Some(column);
-                            selection.row = None;
-                        }
+                    .on_hover_text(tr!(
+                        "Потяните ползунок или Shift + колесо мыши, чтобы двигать таблицу влево/вправо",
+                        "Drag to move the table left/right"
+                    ));
+                });
+            }
+            ui.add_space(6.0 * zoom);
+            if let Some(edit) = edit.as_mut() {
+                let shift_wheel = ui.rect_contains_pointer(ui.max_rect())
+                    && ui.input(|input| input.modifiers.shift);
+                if shift_wheel {
+                    let delta = ui.input_mut(|input| {
+                        let delta = input.raw_scroll_delta;
+                        input.raw_scroll_delta = egui::Vec2::ZERO;
+                        input.smooth_scroll_delta = egui::Vec2::ZERO;
+                        delta
+                    });
+                    if delta != egui::Vec2::ZERO {
+                        edit.horizontal_offset =
+                            (edit.horizontal_offset + delta.y + delta.x).clamp(0.0, 5_000.0);
                     }
                 }
-            });
+            }
             let scroll_offset = edit
                 .as_ref()
                 .map(|edit| edit.horizontal_offset)
@@ -666,19 +680,80 @@ fn render_cells(
                     egui::Grid::new("spreadsheet-grid")
                         .spacing([2.0, 2.0])
                         .show(ui, |ui| {
+                            // Headers live inside the same Grid and ScrollArea as
+                            // the cells, so letters and row numbers move together
+                            // with the table and stay centered over their cells.
+                            let corner = egui::Frame::none()
+                                .fill(egui::Color32::from_rgb(245, 242, 235))
+                                .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(205)))
+                                .show(ui, |ui| {
+                                    ui.set_min_size(egui::vec2(32.0 * zoom, 26.0 * zoom));
+                                });
+                            let _ = corner;
+                            for (column, width) in columns.clone().zip(&column_widths) {
+                                let header = egui::Frame::none()
+                                    .fill(egui::Color32::from_rgb(245, 242, 235))
+                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(205)))
+                                    .show(ui, |ui| {
+                                        ui.set_min_size(egui::vec2(*width, 26.0 * zoom));
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(*width, 26.0 * zoom),
+                                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                            |ui| {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new(column_name(column))
+                                                            .strong()
+                                                            .size(body_size)
+                                                            .color(egui::Color32::BLACK),
+                                                    )
+                                                    .sense(egui::Sense::click()),
+                                                )
+                                            },
+                                        )
+                                        .inner
+                                    })
+                                    .inner;
+                                let header = header
+                                    .on_hover_cursor(egui::CursorIcon::ResizeVertical)
+                                    .on_hover_text(tr!("Выделить столбец", "Select column"));
+                                if header.clicked() {
+                                    if let Some(focused) = ui.memory(|memory| memory.focused()) {
+                                        ui.memory_mut(|memory| memory.surrender_focus(focused));
+                                    }
+                                    if let Some(selection) = selection.as_deref_mut() {
+                                        selection.column = Some(column);
+                                        selection.row = None;
+                                    }
+                                }
+                            }
+                            ui.end_row();
                             for row in rows.clone() {
                                 let selected_row = selection.as_ref().is_some_and(|selection| selection.row == Some(row));
-                                let response = ui.add_sized(
-                                    [32.0 * zoom, 22.0 * zoom],
-                                    egui::Label::new(
-                                        egui::RichText::new((row + 1).to_string())
-                                            .size(small_size)
-                                            .color(if selected_row { egui::Color32::from_rgb(0x6B, 0x42, 0x1C) } else { egui::Color32::DARK_GRAY }),
-                                    )
-                                    .sense(egui::Sense::click()),
-                                )
-                                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
-                                .on_hover_text(tr!("Выделить строку", "Select row"));
+                                let response = egui::Frame::none()
+                                    .fill(egui::Color32::from_rgb(245, 242, 235))
+                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(205)))
+                                    .show(ui, |ui| {
+                                        ui.set_min_size(egui::vec2(32.0 * zoom, 22.0 * zoom));
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(32.0 * zoom, 22.0 * zoom),
+                                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                                            |ui| {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        egui::RichText::new((row + 1).to_string())
+                                                            .size(small_size)
+                                                            .color(if selected_row { egui::Color32::from_rgb(0x6B, 0x42, 0x1C) } else { egui::Color32::DARK_GRAY }),
+                                                    )
+                                                    .sense(egui::Sense::click()),
+                                                )
+                                            },
+                                        )
+                                        .inner
+                                    })
+                                    .inner
+                                    .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+                                    .on_hover_text(tr!("Выделить строку", "Select row"));
                                 if response.clicked() {
                                     if let Some(focused) = ui.memory(|memory| memory.focused()) {
                                         ui.memory_mut(|memory| memory.surrender_focus(focused));
@@ -719,6 +794,7 @@ fn render_cells(
                                             },
                                         ))
                                         .show(ui, |ui| {
+                                            ui.set_min_width(*width);
                                             if is_active && search.editable {
                                                 if let Some(edit) = edit.as_deref_mut() {
                                                     let id = egui::Id::new(("workbook-inline",edit.generation,edit.sheet,row,column));
@@ -800,6 +876,12 @@ fn render_cells(
                                     if response.clicked() {
                                         selected = Some((row, column));
                                     }
+                                    if response.double_clicked() && !search.editable {
+                                        if let Some(edit) = edit.as_deref_mut() {
+                                            edit.dialog = Some((row, column));
+                                        }
+                                        selected = Some((row, column));
+                                    }
                                     if is_target && search.scroll { response.scroll_to_me(Some(egui::Align::Center)); }
                                 }
                                 ui.end_row();
@@ -808,22 +890,6 @@ fn render_cells(
                 });
             if let Some(edit) = edit.as_mut() {
                 edit.horizontal_offset = scroll_output.state.offset.x;
-                ui.add_space(4.0 * zoom);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(tr!("Положение таблицы", "Table position"))
-                            .size(small_size)
-                            .color(egui::Color32::DARK_GRAY),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut edit.horizontal_offset, 0.0..=5_000.0)
-                            .show_value(false),
-                    )
-                    .on_hover_text(tr!(
-                        "Потяните ползунок, чтобы двигать таблицу влево/вправо",
-                        "Drag to move the table left/right"
-                    ));
-                });
             }
             if sheet.row_count > MAX_PREVIEW_ROWS || sheet.column_count > MAX_PREVIEW_COLUMNS {
                 ui.add_space(8.0 * zoom);

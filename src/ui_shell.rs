@@ -1100,20 +1100,19 @@ impl NotOfficeApp {
             self.search_scroll_requested = false;
         }
         let editing = book.editor.is_some();
-        if !editing
-            && ui
-                .add(egui::Button::new(
-                    RichText::new(tr!("Изменить значения", "Edit values"))
-                        .size(11.5)
-                        .color(theme::accent_ink()),
+        if !editing {
+            ui.label(
+                RichText::new(tr!(
+                    "Двойной щелчок по ячейке — изменить данные",
+                    "Double-click a cell to edit data"
                 ))
-                .on_hover_text(tr!(
-                    "Создать копию XLSX с типизированными значениями ячеек; формулы не сохраняются",
-                    "Create an XLSX copy with typed cell values; formulas are not kept"
-                ))
-                .clicked()
-        {
-            self.edit_workbook_copy();
+                .size(11.0)
+                .color(theme::muted()),
+            )
+            .on_hover_text(tr!(
+                "Откроется диалог «Изменить данные»; будет создана редактируемая XLSX-копия",
+                "Opens the Edit data dialog; an editable XLSX copy is created"
+            ));
         }
     }
 
@@ -1169,7 +1168,9 @@ impl NotOfficeApp {
                                 .color(theme::accent_ink()),
                         );
                     }
-                    if !self.recovery_notice.is_empty() {
+                    if !self.recovery_notice.is_empty()
+                        && self.status != self.recovery_notice
+                    {
                         let notice_width = (ui.available_width() * 0.25).max(80.0);
                         ui.allocate_ui_with_layout(
                             Vec2::new(notice_width, 16.0),
@@ -1183,8 +1184,7 @@ impl NotOfficeApp {
                                             .color(theme::warn()),
                                     )
                                     .truncate(),
-                                )
-                                .on_hover_text(&self.recovery_notice);
+                                );
                             },
                         );
                     }

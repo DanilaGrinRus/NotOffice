@@ -585,6 +585,14 @@ enum PendingAction {
     Close,
 }
 
+#[derive(Clone)]
+struct CellEditDialog {
+    row: usize,
+    column: usize,
+    text: String,
+    focus: bool,
+}
+
 #[derive(Clone, PartialEq)]
 struct WorkbookSnapshot {
     sheets: Vec<SpreadsheetModel>,
@@ -600,6 +608,7 @@ struct NotOfficeApp {
     pdf: Option<pdf_view::PdfView>,
     docx: Option<DocxPackage>,
     spreadsheet: Option<SpreadsheetDocument>,
+    cell_edit_dialog: Option<CellEditDialog>,
     legacy_doc: Option<LegacyDocPackage>,
     legacy_doc_textures: Vec<Option<egui::TextureHandle>>,
     docx_textures: Vec<Option<egui::TextureHandle>>,
@@ -717,6 +726,7 @@ impl Default for NotOfficeApp {
             pdf_print_settings: Default::default(),
             docx: None,
             spreadsheet: None,
+            cell_edit_dialog: None,
             legacy_doc: None,
             legacy_doc_textures: Vec::new(),
             docx_textures: Vec::new(),
@@ -1429,6 +1439,118 @@ impl NotOfficeApp {
         }
     }
 
+    fn show_cell_edit_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut dialog) = self.cell_edit_dialog.take() else {
+            return;
+        };
+        let mut apply = false;
+        let mut cancel = false;
+        let mut open = true;
+        let id = egui::Id::new("workbook-cell-edit-dialog");
+        let read_only = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.editor.is_none());
+        egui::Window::new(tr!("Изменить данные", "Edit data"))
+            .id(id)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(tfm!(
+                        "Ячейка {}{}",
+                        "Cell {}{}",
+                        spreadsheet_column_name(dialog.column),
+                        dialog.row + 1
+                    ))
+                    .strong()
+                    .size(14.0),
+                );
+                if read_only {
+                    ui.label(tr!(
+                        "Изменение создаст редактируемую копию книги; исходный файл не изменится.",
+                        "Editing will create an editable workbook copy; the original file is not changed."
+                    ));
+                }
+                let text_id = id.with("text");
+                let enter_before = ui.memory(|memory| memory.has_focus(text_id))
+                    && ui.input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    });
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut dialog.text)
+                        .id_source(text_id)
+                        .desired_width(320.0)
+                        .char_limit(32767),
+                );
+                if dialog.focus {
+                    response.request_focus();
+                    dialog.focus = false;
+                }
+                let enter_after = response.lost_focus()
+                    && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                if enter_before || enter_after {
+                    apply = true;
+                }
+                if ui.input_mut(|input| {
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                }) {
+                    cancel = true;
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(tr!("Сохранить", "Save")).clicked() {
+                        apply = true;
+                    }
+                    if ui.button(tr!("Отмена", "Cancel")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if apply {
+            self.apply_cell_edit_dialog(dialog);
+        } else if !cancel && open {
+            self.cell_edit_dialog = Some(dialog);
+        }
+    }
+
+    fn apply_cell_edit_dialog(&mut self, dialog: CellEditDialog) {
+        if self.decision_pending() {
+            return;
+        }
+        let before = self.workbook_snapshot();
+        let read_only = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.editor.is_none());
+        if read_only {
+            if self.opened_path.is_none() {
+                self.status = tr!(
+                    "Нельзя изменить данные: у книги нет пути для редактируемой копии",
+                    "Cannot edit data: workbook has no path for an editable copy"
+                )
+                .into();
+                return;
+            }
+            self.edit_workbook_copy();
+        }
+        let Some(book) = self.spreadsheet.as_mut() else {
+            return;
+        };
+        book.selected_cell = Some((dialog.row, dialog.column));
+        book.set_cell_text(dialog.row, dialog.column, dialog.text);
+        book.focus_pending = false;
+        self.record_workbook_edit(before);
+        self.search_dirty = true;
+        self.status = tfm!(
+            "Ячейка {}{} изменена; Ctrl+Z отменяет",
+            "Cell {}{} changed; Ctrl+Z undoes",
+            spreadsheet_column_name(dialog.column),
+            dialog.row + 1
+        );
+    }
+
     fn handle_search_shortcuts(&mut self, ctx: &egui::Context) {
         if self.decision_pending() || !self.has_document() || self.pdf.is_some() {
             return;
@@ -1452,6 +1574,72 @@ impl NotOfficeApp {
         };
         if ctx.input_mut(|input| input.consume_key(modifiers, egui::Key::F3)) {
             self.navigate_search(backwards);
+        }
+    }
+
+    fn handle_spreadsheet_undo_shortcut(&mut self, ctx: &egui::Context) {
+        if self.decision_pending() {
+            return;
+        }
+        let (editable, selection_active) = self
+            .spreadsheet
+            .as_ref()
+            .map(|book| {
+                (
+                    book.editor.is_some(),
+                    book.selection.row.is_some() || book.selection.column.is_some(),
+                )
+            })
+            .unwrap_or((false, false));
+        if !editable || !self.can_undo() || (!selection_active && ctx.wants_keyboard_input()) {
+            return;
+        }
+        let shift = ctx.input(|input| input.modifiers.shift);
+        if shift {
+            return;
+        }
+        if ctx.input_mut(|input| {
+            input.consume_key(egui::Modifiers::CTRL, egui::Key::Z)
+                || input.consume_key(egui::Modifiers::COMMAND, egui::Key::Z)
+        }) {
+            // The grid header selection can leave no text field focused. Handle
+            // this before toolbar/search code so Ctrl+Z always reaches the app
+            // history after a row/column Delete.
+            self.undo_workbook();
+        }
+    }
+
+    fn handle_spreadsheet_delete_shortcut(&mut self, ctx: &egui::Context) {
+        if self.decision_pending() {
+            return;
+        }
+        let has_selection = self.spreadsheet.as_ref().is_some_and(|book| {
+            book.editor.is_some()
+                && (book.selection.row.is_some() || book.selection.column.is_some())
+        });
+        if !has_selection || ctx.wants_keyboard_input() {
+            return;
+        }
+        if !ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
+            return;
+        }
+        let before = self.workbook_snapshot();
+        let changed = self
+            .spreadsheet
+            .as_mut()
+            .is_some_and(|book| book.delete_selected_row_or_column());
+        if changed {
+            // This handler runs before the grid is drawn, so the snapshot is
+            // guaranteed to be the state before Delete. The old in-grid delete
+            // path mutated the workbook after the app snapshot and could leave
+            // Ctrl+Z with no matching history entry.
+            self.record_workbook_edit(before);
+            self.search_dirty = true;
+            self.status = tr!(
+                "Строка/столбец очищены; Ctrl+Z вернёт ячейки",
+                "Row/column cleared; Ctrl+Z restores the cells"
+            )
+            .into();
         }
     }
 
@@ -4070,9 +4258,11 @@ impl eframe::App for NotOfficeApp {
 impl NotOfficeApp {
     // Also exercised by headless tests with the real toolbar and preview.
     fn show(&mut self, ctx: &egui::Context) {
+        self.handle_spreadsheet_undo_shortcut(ctx);
         self.handle_search_shortcuts(ctx);
         self.prepare_docx_focus(ctx);
         self.handle_edit_shortcuts(ctx);
+        self.handle_spreadsheet_delete_shortcut(ctx);
         if let Some(receiver) = self.print_receiver.as_ref() {
             match receiver.try_recv() {
                 Ok(message) => {
@@ -4308,6 +4498,18 @@ impl NotOfficeApp {
                 if changed {
                     self.record_workbook_edit(before_edit);
                     self.search_dirty = true;
+                }
+                if let Some((row, column, text)) = self
+                    .spreadsheet
+                    .as_mut()
+                    .and_then(SpreadsheetDocument::take_cell_edit_request)
+                {
+                    self.cell_edit_dialog = Some(CellEditDialog {
+                        row,
+                        column,
+                        text,
+                        focus: true,
+                    });
                 }
             } else {
                 egui::ScrollArea::both()
@@ -4637,6 +4839,7 @@ impl NotOfficeApp {
                 });
             });
         }
+        self.show_cell_edit_dialog(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title()));
     }
 }
