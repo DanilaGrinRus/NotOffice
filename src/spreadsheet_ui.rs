@@ -306,7 +306,17 @@ impl SpreadsheetDocument {
                 self.formats.insert(key, format);
                 changed = true;
             }
-            ui.label(tr!("Формула", "Formula"));
+            ui.allocate_ui_with_layout(
+                egui::vec2(58.0, 24.0),
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new(tr!("Формула", "Formula"))
+                            .size(11.0)
+                            .color(egui::Color32::from_gray(90)),
+                    );
+                },
+            );
             let formula_id = egui::Id::new("workbook-formula-input");
             let formula_enter_before = ui.memory(|memory| memory.has_focus(formula_id))
                 && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
