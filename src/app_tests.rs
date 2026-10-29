@@ -1791,8 +1791,8 @@ fn ctrl_h_replace_enter_escape_and_toolbar_undo_focus_are_guarded() {
     });
     assert_eq!(
         loaded_docx_text(&app),
-        "Done Find",
-        "toolbar Ctrl+Z must not undo the document"
+        "Find Find",
+        "Ctrl+Z in the replacement field must undo the document replacement"
     );
     let _ = ctx.run(
         search_key(egui::Key::Escape, egui::Modifiers::NONE),
@@ -1805,14 +1805,14 @@ fn ctrl_h_replace_enter_escape_and_toolbar_undo_focus_are_guarded() {
     );
     assert!(!app.replace_open);
     ctx.memory_mut(|m| m.surrender_focus(id));
-    let _ = ctx.run(search_key(egui::Key::Z, command), |ctx| {
-        app.handle_edit_shortcuts(ctx)
-    });
-    assert_eq!(loaded_docx_text(&app), "Find Find");
     let _ = ctx.run(search_key(egui::Key::Y, command), |ctx| {
         app.handle_edit_shortcuts(ctx)
     });
     assert_eq!(loaded_docx_text(&app), "Done Find");
+    let _ = ctx.run(search_key(egui::Key::Z, command), |ctx| {
+        app.handle_edit_shortcuts(ctx)
+    });
+    assert_eq!(loaded_docx_text(&app), "Find Find");
     app.pending_action = Some(PendingAction::Close);
     let _ = ctx.run(search_key(egui::Key::H, command), |ctx| {
         app.handle_search_shortcuts(ctx)

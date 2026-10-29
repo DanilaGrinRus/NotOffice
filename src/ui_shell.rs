@@ -469,28 +469,10 @@ impl NotOfficeApp {
             }
             ui.separator();
             if ui
-                .add(egui::Button::new(tr!("Открыть…", "Open…")).shortcut_text("Ctrl+O"))
-                .clicked()
-            {
-                self.open_document();
-                ui.close_menu();
-            }
-            if ui
                 .button(tr!("Открыть в новом окне…", "Open in new window…"))
                 .clicked()
             {
                 self.open_document_in_new_window();
-                ui.close_menu();
-            }
-            if ui
-                .button(tr!("Открыть с помощью…", "Open with…"))
-                .on_hover_text(tr!(
-                    "Выбрать Word, NotOffice или другую программу в окне Windows",
-                    "Choose Word, NotOffice or another app in the Windows dialog"
-                ))
-                .clicked()
-            {
-                self.open_with_dialog();
                 ui.close_menu();
             }
             let recents = self.recent_paths.clone();
@@ -710,7 +692,7 @@ impl NotOfficeApp {
                 .on_hover_text(path.display().to_string())
                 .clicked()
             {
-                self.request_open_path(path.clone());
+                self.open_path_in_new_window(path.clone());
                 ui.close_menu();
             }
         }
@@ -732,6 +714,16 @@ impl NotOfficeApp {
             .clicked()
         {
             self.open_recovery_folder();
+            ui.close_menu();
+        }
+        if ui
+            .button(tr!(
+                "Удалить папки восстановления",
+                "Delete recovery folders"
+            ))
+            .clicked()
+        {
+            self.delete_recovery_folders();
             ui.close_menu();
         }
     }

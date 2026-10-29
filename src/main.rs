@@ -738,7 +738,7 @@ impl Default for NotOfficeApp {
             search_dirty: true,
             search_scroll_requested: false,
             search_focus_requested: false,
-            replace_open: false,
+            replace_open: true,
             replacement_text: String::new(),
             replacement_input_id: None,
             replacement_focus_requested: false,
@@ -777,7 +777,7 @@ impl Default for NotOfficeApp {
             theme: saved_theme,
             document_view_rect: None,
             page_setup_open: false,
-            search_active: false,
+            search_active: true,
         }
     }
 }
@@ -1482,8 +1482,25 @@ impl NotOfficeApp {
         if self.decision_pending()
             || (self.docx.is_none() && !editable_workbook && !editable_text)
             || self.search_focus_requested
-            || self.toolbar_text_field_is_focused(ctx)
         {
+            return;
+        }
+        let focused = ctx.memory(|memory| memory.focused());
+        let toolbar_focused = focused.is_some_and(|id| {
+            self.search_input_id == Some(id)
+                || self.replacement_input_id == Some(id)
+                || self.font_input_id == Some(id)
+        });
+        if toolbar_focused {
+            // Ctrl+Z in the Replace field must undo the last document/table/text
+            // replacement. Keeping it local to egui's field editor was the
+            // reported bug, so route this explicit shortcut to the app history.
+            if self.replacement_input_id == focused
+                && self.can_undo()
+                && ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
+            {
+                self.undo();
+            }
             return;
         }
         let redo_modifiers = egui::Modifiers {
@@ -1668,6 +1685,9 @@ impl NotOfficeApp {
         self.recovery_snapshot_workbook = None;
         self.recovery_last_attempt = None;
         self.recovery_notice.clear();
+        if let Some(root) = self.recovery_root.as_deref() {
+            let _ = liteoffice::recovery::prune_empty_sessions(root);
+        }
         true
     }
 
@@ -1754,6 +1774,9 @@ impl NotOfficeApp {
             return false;
         }
         self.recovery_candidates.remove(0);
+        if let Some(root) = self.recovery_root.as_deref() {
+            let _ = liteoffice::recovery::prune_empty_sessions(root);
+        }
         self.recovery_discard_confirmation = false;
         self.recovery_notice = tr!(
             "Выбранное восстановление удалено по вашему решению; оригинал не изменён",
@@ -2065,6 +2088,24 @@ impl NotOfficeApp {
         }
     }
 
+    fn open_path_in_new_window(&mut self, path: PathBuf) {
+        match spawn_liteoffice_window(Some(&path)) {
+            Ok(()) => {
+                self.status = tfm!(
+                    "Файл {} открыт в новом независимом окне",
+                    "Opened {} in a new independent window",
+                    path.display()
+                )
+            }
+            Err(error) => {
+                self.status = tfm!(
+                    "Не удалось открыть в новом окне: {error}",
+                    "Open in new window failed: {error}"
+                )
+            }
+        }
+    }
+
     fn open_document_in_new_window(&mut self) {
         let path = rfd::FileDialog::new()
             .add_filter(
@@ -2098,57 +2139,6 @@ impl NotOfficeApp {
                 )
                 .into()
             }
-        }
-    }
-
-    fn open_with_dialog(&mut self) {
-        let path = rfd::FileDialog::new()
-            .add_filter(
-                tr!("Документ", "Document"),
-                &[
-                    "docx", "doc", "xlsx", "xls", "xlsb", "ods", "csv", "tsv", "pdf", "txt", "md",
-                    "rtf",
-                ],
-            )
-            .pick_file();
-        let Some(path) = path else {
-            self.status = tr!(
-                "Открытие отменено: файл не выбран",
-                "Open cancelled: no file selected"
-            )
-            .into();
-            return;
-        };
-        #[cfg(windows)]
-        {
-            match std::process::Command::new("rundll32.exe")
-                .arg("shell32.dll,OpenAs_RunDLL")
-                .arg(&path)
-                .spawn()
-            {
-                Ok(_) => {
-                    self.status = tfm!(
-                        "Выбор программы для {}: выберите Word или NotOffice в окне Windows",
-                        "Choose an app for {}: select Word or NotOffice in the Windows dialog",
-                        path.display()
-                    )
-                }
-                Err(error) => {
-                    self.status = tfm!(
-                        "Не удалось открыть выбор программы: {error}",
-                        "Could not open the app chooser: {error}"
-                    )
-                }
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = path;
-            self.status = tr!(
-                "Выбор внешней программы доступен только в Windows",
-                "Choosing an external app is available on Windows only"
-            )
-            .into();
         }
     }
 
@@ -3247,6 +3237,56 @@ impl NotOfficeApp {
                 "Recent list cleared in memory, but not saved: {error}"
             ),
         };
+    }
+
+    fn delete_recovery_folders(&mut self) {
+        let root = self
+            .recovery_root
+            .clone()
+            .unwrap_or_else(|| liteoffice::app_paths::data_dir().join("NotOffice-recovery"));
+        let answer = rfd::MessageDialog::new()
+            .set_title(tr!(
+                "Удалить папки восстановления?",
+                "Delete recovery folders?"
+            ))
+            .set_description(tr!(
+                "Будут удалены все закрытые папки восстановления, включая несохранённые копии. Открытые документы и их несохранённые правки не изменятся. Активные окна не затрагиваются. Продолжить?",
+                "All closed recovery folders will be deleted, including unsaved copies. Open documents and their unsaved edits will not change. Active windows are not affected. Continue?"
+            ))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show();
+        if answer != rfd::MessageDialogResult::Yes {
+            return;
+        }
+        // Release this window's claimed sessions so its own folders can be
+        // removed by the explicit cleanup too.
+        self.recovery_session = None;
+        self.recovery_candidates.clear();
+        self.recovery_snapshot_model = None;
+        self.recovery_snapshot_text = None;
+        self.recovery_snapshot_workbook = None;
+        self.recovery_last_attempt = None;
+        match liteoffice::recovery::clear_closed_sessions(&root) {
+            Ok(report) => {
+                self.status = tfm!(
+                    "Папки восстановления удалены: {}; активных окон пропущено: {}{}",
+                    "Recovery folders deleted: {}; live windows skipped: {}{}",
+                    report.removed,
+                    report.skipped_live,
+                    if report.failed.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; {}", report.failed.join("; "))
+                    }
+                );
+            }
+            Err(error) => {
+                self.status = tfm!(
+                    "Не удалось удалить папки восстановления: {error}",
+                    "Could not delete recovery folders: {error}"
+                );
+            }
+        }
     }
 
     fn open_recovery_folder(&mut self) {

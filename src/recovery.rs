@@ -598,6 +598,114 @@ impl Session {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CleanupReport {
+    pub removed: usize,
+    pub skipped_live: usize,
+    pub failed: Vec<String>,
+}
+
+fn session_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
+    if !root.try_exists()? {
+        return Ok(Vec::new());
+    }
+    if !plain_directory(root)? {
+        return Err(io::Error::other("recovery root is not a plain directory"));
+    }
+    let mut directories = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if !entry.file_name().to_string_lossy().starts_with("session-") {
+            continue;
+        }
+        if plain_directory(&entry.path()).unwrap_or(false) {
+            directories.push(entry.path());
+        }
+    }
+    Ok(directories)
+}
+
+fn try_session_lease(directory: &Path) -> io::Result<Option<File>> {
+    let lease_path = directory.join("lease");
+    if !fs::symlink_metadata(&lease_path)
+        .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+    {
+        return Ok(None);
+    }
+    let lease = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lease_path)?;
+    match lease.try_lock() {
+        Ok(()) => Ok(Some(lease)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(error) => Err(io::Error::other(error)),
+    }
+}
+
+fn has_any_payload(directory: &Path) -> io::Result<bool> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| snapshot_kind(name).is_some())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Remove only lease/origin leftovers from normally closed windows. Live
+/// sessions and directories containing snapshots or unknown files are kept.
+pub fn prune_empty_sessions(root: &Path) -> io::Result<usize> {
+    let mut removed = 0;
+    for directory in session_directories(root)? {
+        let Ok(Some(lease)) = try_session_lease(&directory) else {
+            continue;
+        };
+        let has_payload = has_any_payload(&directory).unwrap_or(true);
+        let only_known = fs::read_dir(&directory)?.all(|entry| {
+            entry.is_ok_and(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name == "lease" || name == "origin.txt" || snapshot_kind(&name).is_some()
+            })
+        });
+        drop(lease);
+        if !has_payload && only_known && fs::remove_dir_all(&directory).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Explicit user cleanup: remove every closed session directory, including
+/// snapshots. Sessions locked by a live NotOffice window are skipped.
+pub fn clear_closed_sessions(root: &Path) -> io::Result<CleanupReport> {
+    let mut report = CleanupReport::default();
+    for directory in session_directories(root)? {
+        match try_session_lease(&directory) {
+            Ok(Some(lease)) => {
+                drop(lease);
+                match fs::remove_dir_all(&directory) {
+                    Ok(()) => report.removed += 1,
+                    Err(error) => report
+                        .failed
+                        .push(format!("{}: {error}", directory.display())),
+                }
+            }
+            Ok(None) => report.skipped_live += 1,
+            Err(error) => report
+                .failed
+                .push(format!("{}: {error}", directory.display())),
+        }
+    }
+    Ok(report)
+}
+
 /// Claims crashed sessions exclusively. Active windows and candidates already
 /// offered by another window are skipped. Unreadable/malformed files stay put.
 pub fn discover(root: &Path) -> io::Result<(Vec<Session>, Vec<String>)> {
@@ -607,6 +715,7 @@ pub fn discover(root: &Path) -> io::Result<(Vec<Session>, Vec<String>)> {
     if !plain_directory(root)? {
         return Err(io::Error::other("recovery root is not a plain directory"));
     }
+    let _ = prune_empty_sessions(root);
     let mut sessions = Vec::new();
     let mut warnings = Vec::new();
     for entry in fs::read_dir(root)? {
@@ -1243,5 +1352,32 @@ mod tests {
         assert!(damaged);
         assert_eq!(restored, first);
         assert_eq!(std::fs::read(&origin).unwrap(), b"protected original");
+    }
+    #[test]
+    fn stale_lease_only_sessions_are_pruned_and_closed_sessions_can_be_cleared() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path().join("recovery");
+        let empty = Session::create_text(&root, None).unwrap();
+        let empty_dir = empty.directory().to_path_buf();
+        empty.discard().unwrap();
+        drop(empty);
+        assert!(empty_dir.exists());
+        assert_eq!(prune_empty_sessions(&root).unwrap(), 1);
+        assert!(!empty_dir.exists());
+        assert!(discover(&root).unwrap().0.is_empty());
+
+        let mut session = Session::create_text(&root, None).unwrap();
+        let session_dir = session.directory().to_path_buf();
+        let mut document = TextDocument::default();
+        document.text = "unsaved".into();
+        session.checkpoint_text(&document).unwrap();
+        drop(session);
+        let live = Session::create_text(&root, None).unwrap();
+        let report = clear_closed_sessions(&root).unwrap();
+        assert_eq!(report.removed, 1);
+        assert_eq!(report.skipped_live, 1);
+        assert!(!session_dir.exists());
+        assert!(live.directory().exists());
+        drop(live);
     }
 }

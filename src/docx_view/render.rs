@@ -39,6 +39,56 @@ pub(crate) struct ParagraphRenderOptions<'a> {
     pub(crate) reveal_focused: bool,
 }
 
+fn select_word_at_pointer(
+    ui: &egui::Ui,
+    id: egui::Id,
+    text: &str,
+    font: egui::FontId,
+    response: &egui::Response,
+) {
+    let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) else {
+        return;
+    };
+    if !response.rect.contains(pointer) {
+        return;
+    }
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, egui::Color32::BLACK);
+    let local = egui::vec2((pointer.x - response.rect.left() - 4.0).max(0.0), 0.0);
+    let char_index = galley.cursor_from_pos(local).ccursor.index;
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return;
+    }
+    let word_char = |c: char| c.is_alphanumeric() || c == '_';
+    let mut index = char_index.min(chars.len());
+    if index == chars.len() || !word_char(chars[index]) {
+        if index > 0 && word_char(chars[index - 1]) {
+            index -= 1;
+        } else {
+            return;
+        }
+    }
+    let mut start = index;
+    while start > 0 && word_char(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < chars.len() && word_char(chars[end]) {
+        end += 1;
+    }
+    let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(start),
+            egui::text::CCursor::new(end),
+        )));
+    state.store(ui.ctx(), id);
+    ui.ctx().request_repaint();
+}
+
 pub(crate) fn docx_editor_id(generation: u64, fragment_id: usize) -> egui::Id {
     egui::Id::new(("liteoffice-docx-text", generation, fragment_id))
 }
@@ -75,9 +125,13 @@ pub(crate) fn render_paragraph(
                     font.clone(),
                     egui::Color32::BLACK,
                 ));
-                (galley.size().x.max(galley.mesh_bounds.max.x) + 10.0)
+                let measured = (galley.size().x.max(galley.mesh_bounds.max.x) + 18.0)
                     .max(FRAGMENT_MIN_WIDTH)
-                    .min(options.content_width)
+                    .min(options.content_width);
+                // Quantize the inline editor width so typing does not shift the
+                // entire wrapped line on every glyph. The extra caret margin
+                // also prevents the field from horizontally scrolling its text.
+                ((measured / 16.0).ceil() * 16.0).min(options.content_width)
             });
             let id = docx_editor_id(options.editor_generation, fragment.id);
             let focus_now =
@@ -103,12 +157,13 @@ pub(crate) fn render_paragraph(
                     egui::Color32::TRANSPARENT
                 })
                 .show(ui, |ui| {
+                    ui.visuals_mut().selection.bg_fill = crate::ui_theme::selection();
                     ui.add_sized(
                         [width, fragment_render_height(fragment, options.zoom)],
                         egui::TextEdit::singleline(&mut fragment.text)
                             .id(id)
                             .cursor_at_end(false)
-                            .font(font)
+                            .font(font.clone())
                             .text_color(egui::Color32::BLACK)
                             .frame(false),
                     )
@@ -119,6 +174,15 @@ pub(crate) fn render_paragraph(
                 if response.clicked() {
                     *options.select_all_docx = false;
                 }
+            }
+            if response.double_clicked() {
+                select_word_at_pointer(ui, id, &fragment.text, font.clone(), &response);
+            }
+            // A singleline TextEdit surrenders focus to Enter. In the DOCX
+            // fragment editor Enter must not end the editing session: keep the
+            // caret in the field so the next typed character still lands here.
+            if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                ui.memory_mut(|memory| memory.request_focus(id));
             }
             if active && options.scroll_to_match {
                 ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
