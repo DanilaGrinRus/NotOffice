@@ -197,7 +197,7 @@ cargo test --all-targets
 `NotOffice-settings.txt`, `NotOffice-recent.txt`, `NotOffice-recovery\`.
 Язык хранится отдельно в `NotOffice-language.txt` (`ru`/`en`).
 
-Готовая сборка: `NotOffice-1.0.0.exe` и портативный архив
+Готовая сборка: `NotOffice-1.0.1.exe` и портативный архив
 `NotOffice-1.0.0-portable.zip` — только EXE, юзергайд и лицензии.
 SHA-256 лежит рядом в `.sha256`.
 Запускать можно без аргументов — откроется стартовый экран, — или передать

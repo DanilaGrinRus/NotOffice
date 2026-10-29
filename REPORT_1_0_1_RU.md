@@ -67,7 +67,7 @@
 
 - `C:\NotOffice\NotOffice-1.0.1\NotOffice-1.0.1.exe`
 - Размер: **4 486 144 байта**.
-- SHA-256: `FDD1006EC2BE531312BB9F9606427C5FBD5887D84535DCBCED6C7AFDA894E442`.
+- SHA-256: `506143580B9E5BCBC553D4FC6F7AF8187404C3B23F14414F51F6E0978C1AFAFE`.
 - Portable: `NotOffice-1.0.1-portable.zip`.
 - Sources: `NotOffice-1.0.1-sources.zip`.
 - Контрольные суммы — в `SHA256SUMS.txt`.
