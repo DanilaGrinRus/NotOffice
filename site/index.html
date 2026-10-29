@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NotOffice — документы без подписки и облака</title>
+  <meta name="description" content="NotOffice 1.0.4 — бесплатный портативный редактор и просмотрщик DOCX, XLSX, PDF, TXT, Markdown и RTF для Windows 10/11. Без Office, подписок и обязательной установки.">
+  <link rel="canonical" href="https://danilagrinrus.github.io/NotOffice/">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:title" content="NotOffice — документы без подписки и облака">
+  <meta property="og:description" content="Бесплатный портативный редактор и просмотрщик документов для Windows 10/11. DOCX, XLSX, PDF, TXT, MD, RTF.">
+  <meta property="og:url" content="https://danilagrinrus.github.io/NotOffice/">
+  <meta property="og:image" content="https://danilagrinrus.github.io/NotOffice/assets/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#f4f0e8">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>try{var t=localStorage.getItem('notoffice-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Перейти к содержанию</a>
+
+<header class="nav-wrap">
+  <nav class="nav container" aria-label="Главная навигация">
+    <a class="brand" href="#top" aria-label="NotOffice — на главную">
+      <span class="brand-mark" aria-hidden="true">N</span>
+      <span>NotOffice</span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">
+      <span class="sr-only">Открыть меню</span>
+      <span aria-hidden="true">☰</span>
+    </button>
+    <div class="nav-links" id="nav-links">
+      <a href="#features">Возможности</a>
+      <a href="#formats">Форматы</a>
+      <a href="#new">Что нового</a>
+      <a href="#limits">Ограничения</a>
+      <a href="#faq">Вопросы</a>
+    </div>
+    <div class="nav-actions">
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Переключить тему" title="Светлая / тёмная тема">
+        <span class="theme-light" aria-hidden="true">☾</span>
+        <span class="theme-dark" aria-hidden="true">☀</span>
+      </button>
+      <a class="btn btn-small btn-ghost" href="https://github.com/DanilaGrinRus/NotOffice" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="btn btn-small btn-primary" href="#download">Скачать</a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+  <section class="hero container" id="top">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="dot"></span> Windows 10/11 · x64 · версия 1.0.4</div>
+      <h1>Документы <em>без подписки,</em> облака и лишнего.</h1>
+      <p class="lead">NotOffice — бесплатный портативный редактор и просмотрщик для самых нужных форматов. Работает локально, запускается из папки и не требует Microsoft Office.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-large" href="https://github.com/DanilaGrinRus/NotOffice/releases/download/v1.0.4/NotOffice-1.0.4.exe" rel="noopener">
+          Скачать для Windows <span class="btn-meta">4,5 МБ</span>
+        </a>
+        <a class="btn btn-large btn-ghost" href="#download">Все варианты <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="hero-trust">
+        <span>MIT</span><span>Без установки</span><span>Без аккаунта</span><span>Локальные файлы</span>
+      </div>
+    </div>
+
+    <div class="hero-visual" aria-label="Скриншот NotOffice с документом">
+      <div class="window-glow" aria-hidden="true"></div>
+      <figure class="app-frame tilt">
+        <div class="app-bar"><i></i><i></i><i></i><span>print-regression.docx — NotOffice 1.0.4</span></div>
+        <img src="assets/notoffice-docx.png" alt="Окно NotOffice 1.0.4 с DOCX-документом, поиском и заменой" width="1196" height="839">
+      </figure>
+      <div class="float-card float-top">
+        <span class="mini-icon">ƒ</span>
+        <div><strong>1 + 2 = 3</strong><small>формулы прямо в ячейке</small></div>
+      </div>
+      <div class="float-card float-bottom">
+        <span class="mini-icon shield">◆</span>
+        <div><strong>Recovery</strong><small>копия после сбоя</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="marquee" aria-label="Коротко о проекте">
+    <div class="marquee-inner container">
+      <span>DOCX</span><b>·</b><span>XLSX</span><b>·</b><span>PDF</span><b>·</b><span>TXT</span><b>·</b><span>Markdown</span><b>·</b><span>RTF</span><b>·</b><span>CSV</span><b>·</b><span>ODS</span>
+      <span class="marquee-note">и никакой обязательной подписки</span>
+    </div>
+  </section>
+
+  <section class="section container" id="features">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Зачем NotOffice</div>
+        <h2>Всё нужное для документов. <br>Без лишнего веса.</h2>
+      </div>
+      <p>Редактор для повседневных задач: открыть, прочитать, поправить, найти, заменить, напечатать и сохранить. Локально, на своём компьютере.</p>
+    </div>
+
+    <div class="feature-grid">
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">A</div>
+        <h3>DOCX, TXT, Markdown и RTF</h3>
+        <p>Просмотр и редактирование текста, поиск и замена, Undo/Redo, независимые окна. Enter создаёт новую строку, двойной клик выделяет слово, а выделение хорошо видно.</p>
+        <div class="tags"><span>редактирование</span><span>поиск/замена</span><span>переносы</span></div>
+      </article>
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">▦</div>
+        <h3>Таблицы XLSX</h3>
+        <p>Правка ячеек, простые формулы <code>1+2</code> и <code>=A1+B1</code>, заполнение вниз, выбор строк/столбцов, очистка по Delete и ползунок положения.</p>
+        <div class="tags"><span>формулы</span><span>заполнение</span><span>строки/столбцы</span></div>
+      </article>
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">◫</div>
+        <h3>PDF: посмотреть и напечатать</h3>
+        <p>Растровый просмотр PDF без редактирования. Печать доступна на Windows — без запуска тяжёлого офисного пакета.</p>
+        <div class="tags"><span>просмотр</span><span>печать</span><span>Windows</span></div>
+      </article>
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">⌕</div>
+        <h3>Найти. Заменить. Отменить.</h3>
+        <p>Поля поиска и замены видны по умолчанию. «Заменить всё» — одна транзакция отмены. Ctrl+Z работает и в поле замены.</p>
+        <div class="tags"><span>поиск</span><span>замена</span><span>Undo</span></div>
+      </article>
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">⟳</div>
+        <h3>Восстановление после сбоя</h3>
+        <p>Периодические резервные копии рядом с EXE. После аварийного закрытия NotOffice предложит восстановить или удалить сохранённую копию. Оригинал не меняется.</p>
+        <div class="tags"><span>recovery</span><span>локально</span><span>оригинал цел</span></div>
+      </article>
+      <article class="feature-card">
+        <div class="icon" aria-hidden="true">◐</div>
+        <h3>Шесть тем</h3>
+        <p>Светлая, тёмно-синяя, пергамент, шалфей, тёплый графит и янтарный терминал. Тема меняет только интерфейс — не документ, печать или PDF.</p>
+        <div class="theme-dots" aria-label="Палитры тем">
+          <i style="--c:#EEEBE4"></i><i style="--c:#152238"></i><i style="--c:#F3E8D1"></i><i style="--c:#E5ECE0"></i><i style="--c:#292624"></i><i style="--c:#211A12"></i>
+        </div>
+      </article>
+    </div>
+
+    <div class="extra-strip">
+      <div class="extra-item"><span>01</span><strong>Очищенная копия</strong><p>Сохраняет текст и простую структуру без макросов, OLE и активного содержимого. Для DOC/DOCX/XLS/XLSX.</p></div>
+      <div class="extra-item"><span>02</span><strong>Печать и экспорт</strong><p>Печать, PDF, HTML, TXT и CSV — чтобы быстро поделиться результатом или отправить на бумагу.</p></div>
+      <div class="extra-item"><span>03</span><strong>Вставка диапазонов</strong><p>Вставьте текст из буфера в XLSX-таблицу как значения, начиная с активной ячейки.</p></div>
+      <div class="extra-item"><span>04</span><strong>Русский и English</strong><p>Два языка интерфейса и шесть экранных тем. Документ и печать от темы не зависят.</p></div>
+    </div>
+  </section>
+
+  <section class="section section-tint" id="why">
+    <div class="container split">
+      <div>
+        <div class="eyebrow">Принципы</div>
+        <h2>Ваши файлы остаются <em>вашими.</em></h2>
+        <p class="lead-small">NotOffice не просит аккаунт, не привязывает документы к облаку и не требует постоянного интернета. Открыли файл — работаете с ним на своём компьютере.</p>
+        <ul class="check-list">
+          <li><span>01</span><div><strong>Portable by design.</strong> Распакуйте ZIP и запустите EXE. Настройки и recovery лежат рядом, установка не требуется.</div></li>
+          <li><span>02</span><div><strong>Без подписочной ловушки.</strong> Открытый исходный код и лицензия MIT. Платная подписка не нужна.</div></li>
+          <li><span>03</span><div><strong>Лёгкий и быстрый.</strong> Rust + egui. EXE весит около 4,5 МБ и не тянет за собой офисный пакет.</div></li>
+          <li><span>04</span><div><strong>Независимые окна.</strong> Можно держать рядом два документа и работать с каждым отдельно.</div></li>
+        </ul>
+      </div>
+      <div class="privacy-card">
+        <div class="privacy-orbit" aria-hidden="true"><span>локально</span></div>
+        <div class="privacy-row"><span class="privacy-icon">✓</span><div><strong>Без обязательного Office</strong><small>свой движок форматов</small></div></div>
+        <div class="privacy-row"><span class="privacy-icon">✓</span><div><strong>Без аккаунта</strong><small>не нужно регистрироваться</small></div></div>
+        <div class="privacy-row"><span class="privacy-icon">✓</span><div><strong>Без облачной привязки</strong><small>файлы не уходят на сервер</small></div></div>
+        <div class="privacy-row"><span class="privacy-icon">✓</span><div><strong>Контроль сохранения</strong><small>обнаружение внешних изменений</small></div></div>
+        <p class="privacy-foot">NotOffice — не антивирус и не заменяет проверку файлов из недоверенных источников. Макросы и скрипты документов не выполняются.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section container" id="formats">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Форматы</div>
+        <h2>Что открывает и что редактирует</h2>
+      </div>
+      <p>Честная таблица возможностей. Сложная вёрстка и объекты Office поддерживаются не полностью — это не полная замена Word и Excel.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="format-table">
+        <thead><tr><th>Формат</th><th>Просмотр</th><th>Редактирование</th><th>Комментарий</th></tr></thead>
+        <tbody>
+          <tr><td><strong>DOCX</strong></td><td><span class="yes">Да</span></td><td><span class="yes">Да</span></td><td>Текст, простые таблицы и изображения; сложные стили — частично.</td></tr>
+          <tr><td><strong>TXT / MD</strong></td><td><span class="yes">Да</span></td><td><span class="yes">Да</span></td><td>Обычный текст и Markdown, поиск и замена.</td></tr>
+          <tr><td><strong>RTF</strong></td><td><span class="yes">Да</span></td><td><span class="yes">Да</span></td><td>Простой RTF; сложная разметка не гарантируется.</td></tr>
+          <tr><td><strong>XLSX</strong></td><td><span class="yes">Да</span></td><td><span class="yes">Да*</span></td><td>Правка значений и простая арифметика; сохранение поддерживаемой XLSX-копии.</td></tr>
+          <tr><td><strong>XLS / XLSB / ODS</strong></td><td><span class="yes">Да</span></td><td><span class="partial">Только копия</span></td><td>Просмотр и сохранение значений в новый XLSX; исходный формат не перезаписывается.</td></tr>
+          <tr><td><strong>CSV / TSV</strong></td><td><span class="yes">Да</span></td><td><span class="partial">Через XLSX</span></td><td>Просмотр, при необходимости — работа с копией.</td></tr>
+          <tr><td><strong>PDF</strong></td><td><span class="yes">Да</span></td><td><span class="no">Нет</span></td><td>Растровый просмотр и печать на Windows.</td></tr>
+          <tr><td><strong>DOC (legacy)</strong></td><td><span class="yes">Да</span></td><td><span class="partial">В DOCX-копию</span></td><td>Извлечение текста и доступных изображений; структура может потеряться.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note">* Редактирование XLSX — это работа с поддерживаемой копией значений, а не полная совместимость с формулами, диаграммами и стилями Excel.</p>
+  </section>
+
+  <section class="section section-dark" id="new">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow light">Версия 1.0.4</div>
+          <h2>Свежие исправления, <br>которые чувствуются сразу.</h2>
+        </div>
+        <a class="btn btn-ghost btn-light" href="https://github.com/DanilaGrinRus/NotOffice/releases/tag/v1.0.4" rel="noopener">Release notes <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="release-grid">
+        <article><span class="release-num">01</span><h3>Формулы в ячейке</h3><p>Наберите <code>1+2</code> или <code>=1+2</code>, нажмите Enter — в ячейке появится результат. Ссылки A1, скобки, <code>+ − × ÷</code>.</p></article>
+        <article><span class="release-num">02</span><h3>Таблицы удобнее</h3><p>Ползунок положения, стрелки на заголовках, Delete для выбранной строки/столбца и синий маркер заполнения вниз с продолжением последовательности.</p></article>
+        <article><span class="release-num">03</span><h3>Текст без сюрпризов</h3><p>Enter в DOCX переносит на новую строку и сохраняется, фокус не теряется. Поиск и замена всегда на виду.</p></article>
+        <article><span class="release-num">04</span><h3>Меньше визуального шума</h3><p>Убраны лишние пункты меню. «Недавние» открываются в новом окне, recovery-каталоги можно удалить с подтверждением.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section container" id="screens">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Как выглядит</div>
+        <h2>Знакомый документ. <br>Лёгкий интерфейс.</h2>
+      </div>
+      <p>Страница документа остаётся страницей, а вокруг — только нужные инструменты. Скриншоты сделаны в NotOffice 1.0.4.</p>
+    </div>
+    <div class="shot-grid">
+      <figure class="shot-card shot-wide">
+        <div class="app-bar"><i></i><i></i><i></i><span>DOCX · поиск и замена</span></div>
+        <img src="assets/notoffice-docx.png" alt="NotOffice с открытым DOCX, полями поиска и замены" width="1196" height="839" loading="lazy">
+        <figcaption>DOCX: документ, поиск/замена и тёплое выделение.</figcaption>
+      </figure>
+      <figure class="shot-card">
+        <div class="app-bar"><i></i><i></i><i></i><span>XLSX · таблица</span></div>
+        <img src="assets/notoffice-xlsx.png" alt="NotOffice с таблицей XLSX, полем формулы и ползунком положения" width="1196" height="839" loading="lazy">
+        <figcaption>XLSX: формулы, выбор и заполнение, ползунок таблицы.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section container" id="audience">
+    <div class="audience-grid">
+      <article class="audience-card">
+        <span class="audience-icon">⌂</span>
+        <h3>Для дома</h3>
+        <p>Открыть договор, инструкцию, таблицу расходов или PDF. Без покупки Office ради пары файлов.</p>
+      </article>
+      <article class="audience-card">
+        <span class="audience-icon">⚙</span>
+        <h3>Для работы</h3>
+        <p>Быстро поправить текст, найти и заменить, напечатать документ или свести простую таблицу.</p>
+      </article>
+      <article class="audience-card">
+        <span class="audience-icon">✈</span>
+        <h3>В дороге и на слабом ПК</h3>
+        <p>Портативная папка, около 4,5 МБ, без установщика и фоновых сервисов. Запуск с флешки — штатный сценарий.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section section-tint" id="limits">
+    <div class="container limits-wrap">
+      <div>
+        <div class="eyebrow">Без обещаний магии</div>
+        <h2>Границы возможностей</h2>
+        <p class="lead-small">NotOffice — не полная замена Microsoft Office. Мы предпочитаем честно сказать, что работает неидеально, чем прятать это в мелком шрифте.</p>
+        <a class="text-link" href="https://github.com/DanilaGrinRus/NotOffice/blob/main/STATUS_RU.md" rel="noopener">Полный статус и границы доказательств <span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="limit-list">
+        <li>Сложная вёрстка Word, стили, списки и таблицы поддерживаются не полностью.</li>
+        <li>Формулы, диаграммы и объекты Excel не воспроизводятся как в Excel; простые арифметические формулы — да.</li>
+        <li>XLSB и ODS ориентированы на просмотр; исходный формат не перезаписывается.</li>
+        <li>PDF только просматривается и печатается, без редактирования и поиска по тексту.</li>
+        <li>Linux/macOS экспериментальные: готового стабильного приложения нет.</li>
+        <li>Печатная вёрстка приблизительная; макросы и скрипты не выполняются.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section container" id="download">
+    <div class="download-card">
+      <div class="download-copy">
+        <div class="eyebrow light">Скачать</div>
+        <h2>NotOffice 1.0.4<br>для Windows</h2>
+        <p>Распакуйте portable-архив и запустите EXE. Нужна Windows 10/11 x64 и папка с правом записи.</p>
+        <div class="download-actions">
+          <a class="btn btn-primary btn-large" href="https://github.com/DanilaGrinRus/NotOffice/releases/download/v1.0.4/NotOffice-1.0.4.exe" rel="noopener">Скачать EXE <span class="btn-meta">4,5 МБ</span></a>
+          <a class="btn btn-outline btn-large" href="https://github.com/DanilaGrinRus/NotOffice/releases/download/v1.0.4/NotOffice-1.0.4-portable.zip" rel="noopener">Portable ZIP <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="download-links">
+          <a href="https://github.com/DanilaGrinRus/NotOffice/releases/tag/v1.0.4" rel="noopener">Все файлы релиза</a>
+          <a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/USER_GUIDE_RU.md" rel="noopener">Инструкция</a>
+          <a href="https://github.com/DanilaGrinRus/NotOffice" rel="noopener">Исходники</a>
+        </div>
+      </div>
+      <div class="download-meta">
+        <div class="meta-title">Контрольная сумма EXE</div>
+        <code id="sha">C04F76A7EB888AFCA1EB382612ADD0052BAC6CAE172DF19155DF0E768BC96786</code>
+        <button class="copy-btn" id="copy-sha" type="button">Скопировать</button>
+        <dl>
+          <div><dt>Версия</dt><dd>1.0.4</dd></div>
+          <div><dt>Платформа</dt><dd>Windows 10/11 x64</dd></div>
+          <div><dt>Лицензия</dt><dd>MIT</dd></div>
+          <div><dt>Установка</dt><dd>Не требуется</dd></div>
+        </dl>
+        <p class="meta-foot">Оригинал принятой Windows 1.0.0 сохранён отдельно. Проверяйте SHA-256 перед запуском.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section container" id="faq">
+    <div class="section-head">
+      <div><div class="eyebrow">Вопросы</div><h2>Коротко о главном</h2></div>
+    </div>
+    <div class="faq-grid">
+      <details><summary>Нужен ли Microsoft Office?</summary><p>Нет. NotOffice открывает поддерживаемые форматы сам. Microsoft Office может понадобиться только для сложного редактирования, с которым NotOffice справляется частично.</p></details>
+      <details><summary>Нужна ли установка?</summary><p>Нет. EXE запускается из папки. Portable-архив уже содержит EXE, инструкцию и лицензии. Настройки и recovery создаются рядом с EXE.</p></details>
+      <details><summary>Куда отправляются документы?</summary><p>Никуда. Базовый сценарий — локальная работа с файлами на компьютере. NotOffice не требует аккаунта или облачного хранилища.</p></details>
+      <details><summary>Работают ли формулы Excel?</summary><p>Простые арифметические формулы в XLSX-правке: числа, <code>+ − × ÷</code>, скобки и ссылки A1. Сложные функции, диаграммы и пересчёт внешних книг не поддерживаются.</p></details>
+      <details><summary>Можно ли редактировать PDF?</summary><p>Нет. PDF открывается для просмотра и печати. Редактирование, поиск по тексту и извлечение содержимого не входят в бесплатную версию.</p></details>
+      <details><summary>Есть ли Linux и macOS?</summary><p>Исходники и сборочные скрипты есть, но готового стабильного приложения и runtime-приёмки нет. Стабильная платформа — Windows 10/11 x64.</p></details>
+      <details><summary>Это безопасно?</summary><p>NotOffice не исполняет макросы и скрипты документов. Но это не антивирус: файлы из недоверенных источников всё равно стоит проверять.</p></details>
+      <details><summary>Почему «NotOffice»?</summary><p>Потому что для базовой работы с документами не всегда нужен большой офисный пакет и подписка. Название — напоминание, что инструмент может быть маленьким.</p></details>
+    </div>
+  </section>
+
+  <section class="final-cta container">
+    <div>
+      <div class="eyebrow">Попробуйте</div>
+      <h2>Открыть документ.<br>Без установки и аккаунта.</h2>
+    </div>
+    <div class="final-actions">
+      <a class="btn btn-primary btn-large" href="https://github.com/DanilaGrinRus/NotOffice/releases/download/v1.0.4/NotOffice-1.0.4.exe" rel="noopener">Скачать NotOffice 1.0.4</a>
+      <a class="btn btn-ghost btn-large" href="https://github.com/DanilaGrinRus/NotOffice" rel="noopener">Смотреть код <span aria-hidden="true">↗</span></a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a class="brand" href="#top"><span class="brand-mark">N</span><span>NotOffice</span></a>
+      <p>Маленький локальный инструмент для больших документов.</p>
+    </div>
+    <div class="footer-col"><strong>Проект</strong><a href="https://github.com/DanilaGrinRus/NotOffice" rel="noopener">GitHub</a><a href="https://github.com/DanilaGrinRus/NotOffice/releases" rel="noopener">Релизы</a><a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/README.md" rel="noopener">README</a></div>
+    <div class="footer-col"><strong>Документация</strong><a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/USER_GUIDE_RU.md" rel="noopener">Инструкция</a><a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/STATUS_RU.md" rel="noopener">Статус</a><a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/THIRD_PARTY_LICENSES.md" rel="noopener">Лицензии</a></div>
+    <div class="footer-col"><strong>Право</strong><a href="https://github.com/DanilaGrinRus/NotOffice/blob/main/LICENSE" rel="noopener">MIT License</a><span>© 2026 NotOffice</span></div>
+  </div>
+  <div class="container footer-bottom">
+    <span>Windows 10/11 x64 · стабильная версия 1.0.4</span>
+    <span>Сделано на Rust + egui. Без подписок.</span>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+</body>
+</html>

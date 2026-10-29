@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://danilagrinrus.github.io/NotOffice/sitemap.xml
