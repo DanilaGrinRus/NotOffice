@@ -122,6 +122,27 @@ fn generation(name: &str) -> Option<u64> {
         .then(|| digits.parse().ok())?
 }
 
+fn same_visible_model(
+    left: &crate::docx::DocumentModel,
+    right: &crate::docx::DocumentModel,
+) -> bool {
+    if left.blocks != right.blocks || left.paragraphs.len() != right.paragraphs.len() {
+        return false;
+    }
+    left.paragraphs.iter().zip(&right.paragraphs).all(|(a, b)| {
+        a.page_break_after == b.page_break_after
+            && a.alignment == b.alignment
+            && a.fragments
+                .iter()
+                .map(|fragment| fragment.text.as_str())
+                .collect::<String>()
+                == b.fragments
+                    .iter()
+                    .map(|fragment| fragment.text.as_str())
+                    .collect::<String>()
+    })
+}
+
 fn validated_package(path: &Path) -> Result<DocxPackage, crate::docx::DocxError> {
     let package = DocxPackage::open(path)?;
     package.verify_all_parts()?;
@@ -532,7 +553,7 @@ impl Session {
             .join(format!("snapshot-{:020}.docx", self.generation));
         package.save_as(&pending).map_err(io::Error::other)?;
         let reopened = validated_package(&pending).map_err(io::Error::other)?;
-        if reopened.model != package.model {
+        if !same_visible_model(&reopened.model, &package.model) {
             return Err(io::Error::other(
                 "recovery validation changed the document model",
             ));
@@ -1379,5 +1400,23 @@ mod tests {
         assert!(!session_dir.exists());
         assert!(live.directory().exists());
         drop(live);
+    }
+    #[test]
+    fn checkpoint_accepts_a_line_break_that_reopens_as_text() {
+        let folder = tempfile::tempdir().unwrap();
+        let source = folder.path().join("source.docx");
+        let root = folder.path().join("recovery");
+        let mut package = fixture(&source);
+        package.model.paragraphs[0].fragments[0].text = "One\nTwo".into();
+        let mut session = Session::create(&root, &source).unwrap();
+        session.checkpoint(&package).unwrap();
+        let (restored, fallback) = session.restore().unwrap();
+        assert!(!fallback);
+        let text = restored.model.paragraphs[0]
+            .fragments
+            .iter()
+            .map(|fragment| fragment.text.as_str())
+            .collect::<String>();
+        assert_eq!(text, "One\nTwo");
     }
 }

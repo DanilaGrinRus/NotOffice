@@ -120,19 +120,26 @@ pub(crate) fn render_paragraph(
             // Actual glyph advances/ink plus TextEdit's side margins and a
             // rounding/caret allowance, not the pagination width estimate.
             let width = ui.fonts(|fonts| {
-                let galley = fonts.layout_job(egui::text::LayoutJob::simple_singleline(
-                    fragment.text.clone(),
-                    font.clone(),
-                    egui::Color32::BLACK,
-                ));
-                let measured = (galley.size().x.max(galley.mesh_bounds.max.x) + 18.0)
-                    .max(FRAGMENT_MIN_WIDTH)
-                    .min(options.content_width);
+                let measured = fragment
+                    .text
+                    .split('\n')
+                    .map(|line| {
+                        let galley = fonts.layout_job(egui::text::LayoutJob::simple_singleline(
+                            line.to_owned(),
+                            font.clone(),
+                            egui::Color32::BLACK,
+                        ));
+                        galley.size().x.max(galley.mesh_bounds.max.x)
+                    })
+                    .fold(0.0_f32, f32::max)
+                    + 18.0;
+                let measured = measured.max(FRAGMENT_MIN_WIDTH).min(options.content_width);
                 // Quantize the inline editor width so typing does not shift the
                 // entire wrapped line on every glyph. The extra caret margin
                 // also prevents the field from horizontally scrolling its text.
                 ((measured / 16.0).ceil() * 16.0).min(options.content_width)
             });
+            let line_count = fragment.text.split('\n').count().max(1);
             let id = docx_editor_id(options.editor_generation, fragment.id);
             let focus_now =
                 *options.focus_pending && ui.is_enabled() && ui.input(|input| input.focused);
@@ -160,9 +167,10 @@ pub(crate) fn render_paragraph(
                     ui.visuals_mut().selection.bg_fill = crate::ui_theme::selection();
                     ui.add_sized(
                         [width, fragment_render_height(fragment, options.zoom)],
-                        egui::TextEdit::singleline(&mut fragment.text)
+                        egui::TextEdit::multiline(&mut fragment.text)
                             .id(id)
                             .cursor_at_end(false)
+                            .desired_rows(line_count)
                             .font(font.clone())
                             .text_color(egui::Color32::BLACK)
                             .frame(false),

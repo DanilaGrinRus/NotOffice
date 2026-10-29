@@ -151,7 +151,7 @@ cargo build --release
 
 - Release profile: `opt-level="z"`, fat LTO, `codegen-units=1`, `panic=abort`,
   strip.
-- `cargo test --all-targets`: **246 passed, 9 ignored**.
+- `cargo test --all-targets`: **248 passed, 9 ignored**.
   Разбивка на 29.10.2026: 143 lib (+1 ignored), 88 bin (+2 ignored),
   3 doc_export, 1 pdf_print (+1 ignored), 2 pdf_security (+2 ignored),
   4 search_formats (+3 ignored), 4 xlsb.

@@ -8,7 +8,13 @@ pub(crate) fn estimated_fragment_width(
     zoom: f32,
     size_pt: f32,
 ) -> f32 {
-    (text.chars().count().max(3) as f32 * size_pt * 0.72 * zoom + 12.0)
+    let longest = text
+        .split('\n')
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(3);
+    (longest as f32 * size_pt * 0.72 * zoom + 12.0)
         .max(FRAGMENT_MIN_WIDTH)
         .min(content_width)
 }
@@ -21,7 +27,8 @@ pub(crate) fn fragment_point_size(fragment: &liteoffice::docx::TextFragment) -> 
 }
 
 pub(crate) fn fragment_render_height(fragment: &liteoffice::docx::TextFragment, zoom: f32) -> f32 {
-    (fragment_point_size(fragment) * (96.0 / 72.0) * 1.35).max(FRAGMENT_HEIGHT) * zoom
+    let lines = fragment.text.split('\n').count().max(1) as f32;
+    (fragment_point_size(fragment) * (96.0 / 72.0) * 1.35).max(FRAGMENT_HEIGHT) * lines * zoom
 }
 
 pub(crate) fn estimated_paragraph_height(

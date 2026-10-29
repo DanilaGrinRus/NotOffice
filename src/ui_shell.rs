@@ -853,7 +853,7 @@ impl NotOfficeApp {
                 (
                     theme::accent(),
                     tr!(
-                        "Восстановление включено: каждые 2 секунды сохраняется контрольная точка. После сбоя можно восстановить копию; оригинал не изменяется.",
+                        "Восстановление включено: каждые 2 секунды создаётся резервная копия. После сбоя можно восстановить копию; оригинал не изменяется.",
                         "Recovery is on: a checkpoint is saved every 2 seconds. After a crash you can restore a copy; the original is unchanged."
                     ),
                 )

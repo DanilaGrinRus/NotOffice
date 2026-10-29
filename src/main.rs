@@ -1180,8 +1180,8 @@ impl NotOfficeApp {
                         "Замена доступна для DOCX и таблиц; этот формат только для чтения",
                         "Replacement is available for DOCX and workbooks; this format is read-only"
                     ))
-                        .size(10.5)
-                        .color(ui_theme::faint()),
+                    .size(10.5)
+                    .color(ui_theme::faint()),
                 );
             } else if self.search_results.limited {
                 ui.label(
@@ -1189,28 +1189,10 @@ impl NotOfficeApp {
                         .size(10.5)
                         .color(ui_theme::warn()),
                 );
-            } else {
-                ui.label(
-                    egui::RichText::new(tr!("Пустая замена удаляет текст; одно «Отменить» вернёт его", "Empty replacement deletes text; one Undo restores it"))
-                        .size(10.5)
-                        .color(ui_theme::faint()),
-                );
             }
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(tr!("Готово", "Done"))
-                            .size(11.0)
-                            .color(ui_theme::muted()),
-                    )
-                    .frame(false),
-                )
-                .clicked()
-            {
-                self.search_active = false;
-                self.replace_open = false;
-                self.replacement_input_id = None;
-            }
+            // "Done" is intentionally omitted: the Find row already has a close
+            // button, and keeping the action row to two aligned buttons avoids
+            // the long hint/Done tail wrapping under itself in narrow windows.
         });
     }
 
@@ -1626,8 +1608,8 @@ impl NotOfficeApp {
                 || recovery_notice_failed(&self.recovery_notice)
             {
                 self.recovery_notice = tr!(
-                    "Контрольная точка соответствует текущим правкам; оригинал не изменён",
-                    "Recovery checkpoint matches current edits; original unchanged"
+                    "Резервная копия соответствует текущим правкам; оригинал не изменён",
+                    "Recovery copy matches current edits; original unchanged"
                 )
                 .into();
             }
@@ -1663,7 +1645,7 @@ impl NotOfficeApp {
         match result {
             Ok(()) => {
                 self.recovery_snapshot_model = Some(package.model.clone());
-                self.recovery_notice = tr!("Контрольная точка записана; оригинал не изменён", "Recovery checkpoint saved; original unchanged").into();
+                self.recovery_notice = tr!("Резервная копия создана; оригинал не изменён", "Recovery copy created; original unchanged").into();
             }
             Err(error) => self.recovery_notice = tfm!("ОШИБКА записи восстановления; правки только в памяти, предыдущая точка сохранена: {error}", "Recovery write FAILED; current edits are only in memory, earlier checkpoint kept: {error}"),
         }
@@ -1745,7 +1727,7 @@ impl NotOfficeApp {
                 self.recovered_document = true;
                 self.recovery_discard_confirmation = false;
                 self.recovery_notice = if fallback {
-                    tr!("Восстановлена ПРЕДЫДУЩАЯ корректная контрольная точка (новая повреждена). Требуется «Сохранить как»; оригинал не изменён", "Recovered PREVIOUS valid checkpoint (newest was damaged). Save As required; original unchanged")
+                    tr!("Восстановлена ПРЕДЫДУЩАЯ корректная резервная копия (новая повреждена). Требуется «Сохранить как»; оригинал не изменён", "Recovered PREVIOUS valid recovery copy (newest was damaged). Save As required; original unchanged")
                 } else {
                     tr!("Восстановлен несохранённый DOCX. Требуется «Сохранить как»; оригинал не изменён", "Recovered unsaved DOCX. Save As required; original unchanged")
                 }.into();
@@ -1807,8 +1789,8 @@ impl NotOfficeApp {
                 || recovery_notice_failed(&self.recovery_notice)
             {
                 self.recovery_notice = tr!(
-                    "Контрольная точка соответствует текущим правкам; оригинал не изменён",
-                    "Recovery checkpoint matches current edits; original unchanged"
+                    "Резервная копия соответствует текущим правкам; оригинал не изменён",
+                    "Recovery copy matches current edits; original unchanged"
                 )
                 .into();
             }
@@ -1853,8 +1835,8 @@ impl NotOfficeApp {
             Ok(()) => {
                 self.recovery_snapshot_workbook = Some((sheets, formats));
                 self.recovery_notice = tr!(
-                    "Контрольная точка книги записана; оригинал не изменён",
-                    "Workbook recovery checkpoint saved; original unchanged"
+                    "Резервная копия книги создана; оригинал не изменён",
+                    "Workbook recovery copy created; original unchanged"
                 )
                 .into();
             }
@@ -1938,7 +1920,7 @@ impl NotOfficeApp {
         self.recovery_discard_confirmation = false;
         self.recovery_notice = if fallback {
             tr!(
-                "Восстановлена ПРЕДЫДУЩАЯ корректная контрольная точка книги (новая повреждена). Требуется «Сохранить как XLSX»; оригинал не изменён",
+                "Восстановлена ПРЕДЫДУЩАЯ корректная резервная копия книги (новая повреждена). Требуется «Сохранить как XLSX»; оригинал не изменён",
                 "Recovered PREVIOUS valid workbook checkpoint (newest damaged). Save As XLSX required; original unchanged"
             )
         } else {
@@ -1968,8 +1950,8 @@ impl NotOfficeApp {
                 || recovery_notice_failed(&self.recovery_notice)
             {
                 self.recovery_notice = tr!(
-                    "Контрольная точка соответствует текущим правкам; оригинал не изменён",
-                    "Recovery checkpoint matches current edits; original unchanged"
+                    "Резервная копия соответствует текущим правкам; оригинал не изменён",
+                    "Recovery copy matches current edits; original unchanged"
                 )
                 .into();
             }
@@ -2003,7 +1985,7 @@ impl NotOfficeApp {
                 .checkpoint_text(document)
         })();
         match result {
-            Ok(())=>{self.recovery_snapshot_text=Some((document.kind,document.text.clone()));self.recovery_notice=tr!("Контрольная точка записана; оригинал не изменён", "Recovery checkpoint saved; original unchanged").into();}
+            Ok(())=>{self.recovery_snapshot_text=Some((document.kind,document.text.clone()));self.recovery_notice=tr!("Резервная копия создана; оригинал не изменён", "Recovery copy created; original unchanged").into();}
             Err(error)=>self.recovery_notice=tfm!("ОШИБКА записи восстановления; текст остаётся в окне, предыдущая точка сохранена: {error}", "Recovery write FAILED; latest text remains in this window, previous checkpoint kept: {error}"),
         }
     }
@@ -2064,7 +2046,7 @@ impl NotOfficeApp {
         self.recovery_last_attempt = None;
         self.recovered_document = true;
         self.recovery_discard_confirmation = false;
-        self.recovery_notice=if fallback {tr!("Восстановлена ПРЕДЫДУЩАЯ корректная текстовая контрольная точка (новая повреждена). Требуется «Сохранить как»; оригинал не изменён", "Recovered PREVIOUS valid text checkpoint (newest damaged). Save As copy required; original unchanged")}
+        self.recovery_notice=if fallback {tr!("Восстановлена ПРЕДЫДУЩАЯ корректная текстовая резервная копия (новая повреждена). Требуется «Сохранить как»; оригинал не изменён", "Recovered PREVIOUS valid text recovery copy (newest damaged). Save As copy required; original unchanged")}
             else {tr!("Восстановлен несохранённый текст. Требуется «Сохранить как»; оригинал не изменён", "Recovered unsaved text. Save As copy required; original unchanged")}.into();
         self.status = self.recovery_notice.clone();
         true

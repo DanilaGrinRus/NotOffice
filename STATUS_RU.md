@@ -50,7 +50,7 @@
 
 ## Проверки и границы доказательств
 
-На 1.0.3: fmt/check/test/clippy/release — PASS, **246 passed, 9 ignored**.
+На 1.0.3: fmt/check/test/clippy/release — PASS, **248 passed, 9 ignored**.
 Логи: evidence/test-logs/cargo-fmt-final.log, cargo-check-final.log,
 cargo-test-final.log, cargo-clippy-final.log, cargo-build-final.log.
 git diff --check выполнен перед коммитом.

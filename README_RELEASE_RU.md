@@ -30,7 +30,7 @@
 
 ## Проверки
 
-fmt/check/test/clippy/release — PASS; 246 passed, 9 ignored.
+fmt/check/test/clippy/release — PASS; 248 passed, 9 ignored.
 Проверена одновременная запись четырьмя процессами. Ручной GUI-прогон 1.0.3 — частичный; полный набор сценариев NOT VERIFIED.
 Подробности: STATUS_RU.md и evidence/test-logs/cargo-*-final.log.
 

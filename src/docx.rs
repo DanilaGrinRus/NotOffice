@@ -926,9 +926,24 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                 run_fragment_ids.push(next_id);
                 next_id += 1;
             }
-            Event::Empty(event) if is_page_break(&event) => {
-                if let Some(paragraph) = current_paragraph.as_mut() {
-                    paragraph.page_break_after = true;
+            Event::Empty(event) if is_name(event.name().as_ref(), b"w:br") => {
+                if is_page_break(&event) {
+                    if let Some(paragraph) = current_paragraph.as_mut() {
+                        paragraph.page_break_after = true;
+                    }
+                } else if let Some(paragraph) = current_paragraph.as_mut() {
+                    if let Some(fragment) = paragraph.fragments.last_mut() {
+                        fragment.text.push('\n');
+                    } else {
+                        paragraph.fragments.push(TextFragment {
+                            id: next_id,
+                            text: "\n".into(),
+                            run_id: current_run_id,
+                            font_size_half_points: current_run_size,
+                        });
+                        run_fragment_ids.push(next_id);
+                        next_id += 1;
+                    }
                 }
             }
             Event::Empty(event) if is_name(event.name().as_ref(), b"w:sz") => {
@@ -1061,6 +1076,7 @@ pub fn rewrite_text_nodes(
     let mut writer = Writer::new(Vec::new());
     let mut buffer = Vec::new();
     let mut in_text = false;
+    let mut skip_end = false;
     let mut replacement_index = 0;
 
     loop {
@@ -1068,31 +1084,30 @@ pub fn rewrite_text_nodes(
         match event {
             Event::Start(ref start) if is_name(start.name().as_ref(), b"w:t") => {
                 in_text = true;
+                skip_end = true;
                 let replacement = replacements.get(replacement_index).ok_or_else(|| {
                     DocxError::InvalidDocumentXml("model contains fewer fragments than XML".into())
                 })?;
-                writer.write_event(Event::Start(text_node_start(start, replacement)?))?;
-                writer.write_event(Event::Text(BytesText::new(replacement)))?;
+                write_text_with_breaks(&mut writer, start, replacement)?;
                 replacement_index += 1;
             }
             Event::Empty(ref start) if is_name(start.name().as_ref(), b"w:t") => {
                 let replacement = replacements.get(replacement_index).ok_or_else(|| {
                     DocxError::InvalidDocumentXml("model contains fewer fragments than XML".into())
                 })?;
-                if replacement.is_empty() {
-                    writer.write_event(event)?;
-                } else {
-                    let start = text_node_start(start, replacement)?;
-                    writer.write_event(Event::Start(start.borrow()))?;
-                    writer.write_event(Event::Text(BytesText::new(replacement)))?;
-                    writer.write_event(Event::End(start.to_end()))?;
-                }
+                write_text_with_breaks(&mut writer, start, replacement)?;
                 replacement_index += 1;
             }
             Event::End(ref end) if is_name(end.name().as_ref(), b"w:t") => {
                 in_text = false;
-                writer.write_event(event)?;
+                if skip_end {
+                    skip_end = false;
+                } else {
+                    writer.write_event(event)?;
+                }
             }
+            Event::Empty(ref start)
+                if is_name(start.name().as_ref(), b"w:br") && !is_page_break(start) => {}
             Event::Text(_) | Event::CData(_) if in_text => {}
             Event::Eof => break,
             other => writer.write_event(other)?,
@@ -1105,6 +1120,30 @@ pub fn rewrite_text_nodes(
         ));
     }
     Ok(writer.into_inner())
+}
+
+fn write_text_with_breaks(
+    writer: &mut Writer<Vec<u8>>,
+    start: &BytesStart<'_>,
+    replacement: &str,
+) -> Result<(), DocxError> {
+    let mut parts = replacement.split('\n').peekable();
+    let first = parts.next().unwrap_or_default();
+    let node = text_node_start(start, first)?;
+    writer.write_event(Event::Start(node))?;
+    writer.write_event(Event::Text(BytesText::new(first)))?;
+    writer.write_event(Event::End(BytesStart::new("w:t").to_end()))?;
+    for part in parts {
+        writer.write_event(Event::Empty(BytesStart::new("w:br")))?;
+        if part.is_empty() {
+            continue;
+        }
+        let node = text_node_start(start, part)?;
+        writer.write_event(Event::Start(node))?;
+        writer.write_event(Event::Text(BytesText::new(part)))?;
+        writer.write_event(Event::End(BytesStart::new("w:t").to_end()))?;
+    }
+    Ok(())
 }
 
 fn text_node_start<'a>(
@@ -1773,5 +1812,30 @@ mod tests {
             .flat_map(|p| p.fragments.iter())
             .all(|f| f.font_size_half_points == Some(36)));
         assert_eq!(reparsed.common_font_size(), Some(36));
+    }
+    #[test]
+    fn line_breaks_are_parsed_rewritten_and_round_trip_as_text() {
+        let xml = br#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>One</w:t><w:br/><w:t>Two</w:t><w:br/><w:t>Three</w:t></w:r></w:p></w:body></w:document>"#;
+        let model = parse_document_xml(xml).unwrap();
+        let text = model
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.fragments.iter())
+            .map(|fragment| fragment.text.as_str())
+            .collect::<String>();
+        assert_eq!(text, "One\nTwo\nThree");
+
+        let rewritten = rewrite_document_xml(xml, &model).unwrap();
+        let rewritten_text = String::from_utf8_lossy(&rewritten);
+        assert!(rewritten_text.contains("<w:br/>"));
+        let reparsed = parse_document_xml(&rewritten).unwrap();
+        let reparsed_text = reparsed
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.fragments.iter())
+            .map(|fragment| fragment.text.as_str())
+            .collect::<String>();
+        assert_eq!(reparsed_text, "One\nTwo\nThree");
+        assert_eq!(reparsed_text.matches('\n').count(), 2);
     }
 }
