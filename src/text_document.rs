@@ -70,6 +70,18 @@ impl TextDocument {
             saved_text: String::new(),
         }
     }
+    pub fn from_isolated(kind: TextKind, text: String, path: &Path) -> Result<Self, DocxError> {
+        let fingerprint = source_fingerprint(path)?;
+        Ok(Self {
+            saved_text: text.clone(),
+            text,
+            kind,
+            path: Some(path.to_path_buf()),
+            protected_origin: (kind == TextKind::Rtf).then(|| path.to_path_buf()),
+            fingerprint: Some(fingerprint),
+        })
+    }
+
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }

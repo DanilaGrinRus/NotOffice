@@ -39,6 +39,7 @@ fn main() -> eframe::Result<()> {
         .or_else(xlsx_save_worker_mode)
         .or_else(pdf_worker_mode)
         .or_else(recovery_worker_mode)
+        .or_else(text_worker_mode)
     {
         std::process::exit(code);
     }
@@ -2373,7 +2374,7 @@ impl NotOfficeApp {
         };
         match kind {
             DocumentKind::Txt | DocumentKind::Markdown | DocumentKind::Rtf => {
-                match liteoffice::text_document::TextDocument::open(&path) {
+                match open_text_isolated(&path) {
                     Ok(document) => {
                         self.text = Some(document);
                         self.opened_path = Some(path.clone());
