@@ -35,6 +35,7 @@ fn main() -> eframe::Result<()> {
         .or_else(xls_worker_mode)
         .or_else(csv_worker_mode)
         .or_else(doc_worker_mode)
+        .or_else(docx_save_worker_mode)
     {
         std::process::exit(code);
     }
@@ -3783,12 +3784,39 @@ impl NotOfficeApp {
                 return false;
             }
         }
-        let Some(package) = self.docx.as_mut() else {
+        let Some(package) = self.docx.as_ref() else {
             return false;
         };
+        let source = package.source_path().to_path_buf();
+        let model = package.model.clone();
         let replaced_existing_file = path.exists();
-        match package.save(&path) {
+        let isolated = !parser_isolation_disabled()
+            && source
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+        let result = if isolated {
+            save_docx_isolated(&source, &path, &model)
+        } else {
+            self.docx
+                .as_mut()
+                .unwrap()
+                .save(&path)
+                .map_err(|error| error.to_string())
+        };
+        match result {
             Ok(()) => {
+                if isolated {
+                    match open_docx_isolated(&path) {
+                        Ok(reloaded) => self.docx = Some(reloaded),
+                        Err(error) => {
+                            self.status = tfm!(
+                                "Файл сохранён, но повторное открытие не удалось: {error}",
+                                "File was saved, but reopening failed: {error}"
+                            );
+                            return true;
+                        }
+                    }
+                }
                 if !self.clear_current_recovery() {
                     self.recovery_session = None;
                     self.recovery_snapshot_model = None;
@@ -3816,7 +3844,9 @@ impl NotOfficeApp {
                 };
                 true
             }
-            Err(liteoffice::docx::DocxError::SourceChanged) => {
+            Err(error)
+                if error.contains("changed on disk") || error.contains("changed outside") =>
+            {
                 self.conflict_destination = Some(path.clone());
                 self.status = tfm!("Конфликт сохранения: {} изменён на диске. Несохранённые правки сохранены; перезагрузите, сохраните копию или отмените.", "Save conflict: {} changed on disk. Your unsaved edits are kept; reload, save a copy, or cancel.", path.display());
                 false
