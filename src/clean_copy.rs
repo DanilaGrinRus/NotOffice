@@ -589,6 +589,7 @@ mod tests {
                         text: "Левая".into(),
                         run_id: 0,
                         font_size_half_points: Some(24),
+                        format: Default::default(),
                     }],
                     ..Default::default()
                 },
@@ -598,6 +599,7 @@ mod tests {
                         text: "Правая".into(),
                         run_id: 1,
                         font_size_half_points: None,
+                        format: Default::default(),
                     }],
                     ..Default::default()
                 },
@@ -694,6 +696,7 @@ mod tests {
                     text: "Текст".into(),
                     run_id: 0,
                     font_size_half_points: None,
+                    format: Default::default(),
                 }],
                 ..Default::default()
             }],

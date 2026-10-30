@@ -330,6 +330,7 @@ mod tests {
                                 run_id: id,
                                 text: text.into(),
                                 font_size_half_points: Some(20 + id as u16),
+                                format: Default::default(),
                             })
                             .collect(),
                             ..Default::default()

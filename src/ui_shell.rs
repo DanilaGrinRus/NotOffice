@@ -971,7 +971,7 @@ impl NotOfficeApp {
     }
 
     fn strip_font_controls(&mut self, ui: &mut egui::Ui) {
-        let (shown_size, has_selection) = match self.docx.as_ref() {
+        let (shown_size, shown_format, has_selection) = match self.docx.as_ref() {
             Some(package) => {
                 let shown = if self.select_all_docx {
                     package.model.common_font_size()
@@ -982,10 +982,18 @@ impl NotOfficeApp {
                 };
                 (
                     shown,
+                    if self.select_all_docx {
+                        package.model.common_run_format().unwrap_or_default()
+                    } else {
+                        self.selected_fragment_id
+                            .and_then(|id| package.model.fragment(id))
+                            .map(|fragment| fragment.format)
+                            .unwrap_or_default()
+                    },
                     self.select_all_docx || self.selected_fragment_id.is_some(),
                 )
             }
-            None => (None, false),
+            None => (None, Default::default(), false),
         };
         if !has_selection {
             self.font_input_id = None;
@@ -1049,6 +1057,61 @@ impl NotOfficeApp {
             }
             if let Some(size) = apply {
                 self.change_font_size(size);
+            }
+        }
+        if has_selection {
+            let mut next_format = shown_format;
+            let mut format_changed = false;
+            if ui
+                .selectable_label(shown_format.bold, RichText::new("B").strong())
+                .on_hover_text(tr!("Жирный", "Bold"))
+                .clicked()
+            {
+                next_format.bold = !next_format.bold;
+                format_changed = true;
+            }
+            if ui
+                .selectable_label(shown_format.italic, RichText::new("I").italics())
+                .on_hover_text(tr!("Курсив", "Italic"))
+                .clicked()
+            {
+                next_format.italic = !next_format.italic;
+                format_changed = true;
+            }
+            if ui
+                .selectable_label(shown_format.underline, RichText::new("U").underline())
+                .on_hover_text(tr!("Подчёркнутый", "Underline"))
+                .clicked()
+            {
+                next_format.underline = !next_format.underline;
+                format_changed = true;
+            }
+            if ui
+                .selectable_label(shown_format.strike, RichText::new("S").strikethrough())
+                .on_hover_text(tr!("Зачёркнутый", "Strikethrough"))
+                .clicked()
+            {
+                next_format.strike = !next_format.strike;
+                format_changed = true;
+            }
+            if format_changed {
+                self.change_docx_run_format(next_format);
+            }
+        }
+        if has_selection {
+            if ui
+                .add(egui::Button::new("•").frame(false))
+                .on_hover_text(tr!("Маркированный список", "Bulleted list"))
+                .clicked()
+            {
+                self.toggle_docx_list(false);
+            }
+            if ui
+                .add(egui::Button::new("1.").frame(false))
+                .on_hover_text(tr!("Нумерованный список", "Numbered list"))
+                .clicked()
+            {
+                self.toggle_docx_list(true);
             }
         }
         if !self.select_all_docx

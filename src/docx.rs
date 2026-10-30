@@ -17,6 +17,14 @@ const MAX_DOCX_UNCOMPRESSED_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DOCX_PARTS: usize = 4_096;
 const TEMP_CREATE_ATTEMPTS: u32 = 32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RunFormat {
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextFragment {
     /// Position in document.xml's ordered sequence of w:t nodes.
@@ -26,6 +34,7 @@ pub struct TextFragment {
     pub run_id: usize,
     /// Explicit w:sz value in half-points; None inherits document styles.
     pub font_size_half_points: Option<u16>,
+    pub format: RunFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -124,6 +133,37 @@ impl DocumentModel {
         fragments
             .all(|f| f.font_size_half_points == Some(first))
             .then_some(first)
+    }
+
+    pub fn set_run_format(&mut self, fragment_id: usize, format: RunFormat) -> bool {
+        let Some(run_id) = self.fragment(fragment_id).map(|fragment| fragment.run_id) else {
+            return false;
+        };
+        let mut changed = false;
+        for fragment in self.paragraphs.iter_mut().flat_map(|p| &mut p.fragments) {
+            if fragment.run_id == run_id && fragment.format != format {
+                fragment.format = format;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub fn set_all_run_format(&mut self, format: RunFormat) -> bool {
+        let mut changed = false;
+        for fragment in self.paragraphs.iter_mut().flat_map(|p| &mut p.fragments) {
+            if fragment.format != format {
+                fragment.format = format;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub fn common_run_format(&self) -> Option<RunFormat> {
+        let mut fragments = self.paragraphs.iter().flat_map(|p| p.fragments.iter());
+        let first = fragments.next()?.format;
+        fragments.all(|f| f.format == first).then_some(first)
     }
 
     pub fn fragment(&self, id: usize) -> Option<&TextFragment> {
@@ -865,6 +905,13 @@ fn paragraph_alignment(event: &BytesStart<'_>) -> Option<ParagraphAlignment> {
     })
 }
 
+fn run_flag_attr(event: &BytesStart<'_>) -> bool {
+    event.attributes().flatten().all(|attribute| {
+        attribute.key.as_ref() != b"w:val"
+            || !matches!(attribute.value.as_ref(), b"0" | b"false" | b"off" | b"none")
+    })
+}
+
 fn font_size_attr(event: &BytesStart<'_>) -> Option<u16> {
     event.attributes().flatten().find_map(|a| {
         (a.key.as_ref() == b"w:val")
@@ -895,6 +942,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
     let mut next_run_id = 0;
     let mut current_run_id = 0;
     let mut current_run_size: Option<u16> = None;
+    let mut current_run_format = RunFormat::default();
     let mut run_fragment_ids: Vec<usize> = Vec::new();
 
     loop {
@@ -922,6 +970,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                     text: String::new(),
                     run_id: current_run_id,
                     font_size_half_points: current_run_size,
+                    format: current_run_format,
                 });
                 run_fragment_ids.push(next_id);
                 next_id += 1;
@@ -940,6 +989,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                             text: "\n".into(),
                             run_id: current_run_id,
                             font_size_half_points: current_run_size,
+                            format: current_run_format,
                         });
                         run_fragment_ids.push(next_id);
                         next_id += 1;
@@ -948,6 +998,23 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
             }
             Event::Empty(event) if is_name(event.name().as_ref(), b"w:sz") => {
                 current_run_size = font_size_attr(&event).or(current_run_size);
+            }
+            Event::Empty(event)
+                if is_name(event.name().as_ref(), b"w:b")
+                    || is_name(event.name().as_ref(), b"w:i")
+                    || is_name(event.name().as_ref(), b"w:u")
+                    || is_name(event.name().as_ref(), b"w:strike") =>
+            {
+                let enabled = run_flag_attr(&event);
+                if is_name(event.name().as_ref(), b"w:b") {
+                    current_run_format.bold = enabled;
+                } else if is_name(event.name().as_ref(), b"w:i") {
+                    current_run_format.italic = enabled;
+                } else if is_name(event.name().as_ref(), b"w:u") {
+                    current_run_format.underline = enabled;
+                } else {
+                    current_run_format.strike = enabled;
+                }
             }
             Event::Empty(event) => {
                 if let (Some(paragraph), Some(alignment)) =
@@ -960,6 +1027,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                 current_run_id = next_run_id;
                 next_run_id += 1;
                 current_run_size = None;
+                current_run_format = RunFormat::default();
                 run_fragment_ids.clear();
             }
             Event::Start(event) if is_name(event.name().as_ref(), b"w:sz") => {
@@ -970,6 +1038,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                     if let Some(p) = current_paragraph.as_mut() {
                         if let Some(f) = p.fragments.iter_mut().find(|f| f.id == fragment_id) {
                             f.font_size_half_points = current_run_size;
+                            f.format = current_run_format;
                         }
                     }
                 }
@@ -1025,6 +1094,7 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
                     text: String::new(),
                     run_id: current_run_id,
                     font_size_half_points: current_run_size,
+                    format: current_run_format,
                 });
                 run_fragment_ids.push(next_id);
                 next_id += 1;
@@ -1174,7 +1244,160 @@ pub fn rewrite_document_xml(
 ) -> Result<Vec<u8>, DocxError> {
     let text_xml = rewrite_text_nodes(original_xml, model)?;
     let original_model = parse_document_xml(original_xml)?;
-    rewrite_run_font_sizes(&text_xml, model, &original_model)
+    let sized_xml = rewrite_run_font_sizes(&text_xml, model, &original_model)?;
+    rewrite_run_formats(&sized_xml, model, &original_model)
+}
+
+fn rewrite_run_formats(
+    xml: &[u8],
+    model: &DocumentModel,
+    original_model: &DocumentModel,
+) -> Result<Vec<u8>, DocxError> {
+    let originals: HashMap<usize, RunFormat> = original_model
+        .paragraphs
+        .iter()
+        .flat_map(|p| &p.fragments)
+        .map(|fragment| (fragment.run_id, fragment.format))
+        .collect();
+    let mut targets: HashMap<usize, RunFormat> = HashMap::new();
+    for fragment in model.paragraphs.iter().flat_map(|p| &p.fragments) {
+        if originals.get(&fragment.run_id).copied().unwrap_or_default() != fragment.format {
+            if let Some(previous) = targets.insert(fragment.run_id, fragment.format) {
+                if previous != fragment.format {
+                    return Err(DocxError::UnsafeSave(
+                        "conflicting formatting within one run".into(),
+                    ));
+                }
+            }
+        }
+    }
+    if targets.is_empty() {
+        return Ok(xml.to_vec());
+    }
+    let mut reader = Reader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(false);
+    let mut writer = Writer::new(Vec::new());
+    let mut buf = Vec::new();
+    let mut run_index = 0usize;
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref start) if is_name(start.name().as_ref(), b"w:r") => {
+                let target = targets.get(&run_index).copied();
+                run_index += 1;
+                writer.write_event(Event::Start(start.to_owned()))?;
+                if let Some(format) = target {
+                    let mut contents = Vec::new();
+                    let mut depth = 1usize;
+                    loop {
+                        let item = reader.read_event_into(&mut buf)?.into_owned();
+                        match &item {
+                            Event::Start(e) if is_name(e.name().as_ref(), b"w:r") => depth += 1,
+                            Event::End(e) if is_name(e.name().as_ref(), b"w:r") => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            Event::Eof => {
+                                return Err(DocxError::InvalidDocumentXml(
+                                    "unterminated w:r".into(),
+                                ))
+                            }
+                            _ => {}
+                        }
+                        contents.push(item);
+                        buf.clear();
+                    }
+                    write_formatted_run(&mut writer, contents, format)?;
+                    writer.write_event(Event::End(quick_xml::events::BytesEnd::new("w:r")))?;
+                }
+            }
+            Event::Eof => break,
+            other => writer.write_event(other)?,
+        }
+        buf.clear();
+    }
+    Ok(writer.into_inner())
+}
+
+fn write_formatted_run(
+    writer: &mut Writer<Vec<u8>>,
+    events: Vec<Event<'static>>,
+    format: RunFormat,
+) -> Result<(), DocxError> {
+    let mut has_rpr = false;
+    let mut inside_rpr = false;
+    for event in &events {
+        if let Event::Start(e) | Event::Empty(e) = event {
+            if is_name(e.name().as_ref(), b"w:rPr") {
+                has_rpr = true;
+            }
+        }
+    }
+    if !has_rpr {
+        writer.write_event(Event::Start(BytesStart::new("w:rPr")))?;
+        write_run_format_tags(writer, format)?;
+        writer.write_event(Event::End(quick_xml::events::BytesEnd::new("w:rPr")))?;
+    }
+    for event in events {
+        match event {
+            Event::Start(ref e) if is_name(e.name().as_ref(), b"w:rPr") => {
+                inside_rpr = true;
+                writer.write_event(event)?;
+            }
+            Event::End(ref e) if inside_rpr && is_name(e.name().as_ref(), b"w:rPr") => {
+                write_run_format_tags(writer, format)?;
+                inside_rpr = false;
+                writer.write_event(event)?;
+            }
+            Event::Start(ref e)
+                if inside_rpr
+                    && (is_name(e.name().as_ref(), b"w:b")
+                        || is_name(e.name().as_ref(), b"w:i")
+                        || is_name(e.name().as_ref(), b"w:u")
+                        || is_name(e.name().as_ref(), b"w:strike")) =>
+            {
+                // Drop an old formatting element; it is re-emitted below.
+                let _ = e;
+            }
+            Event::Empty(ref e)
+                if inside_rpr
+                    && (is_name(e.name().as_ref(), b"w:b")
+                        || is_name(e.name().as_ref(), b"w:i")
+                        || is_name(e.name().as_ref(), b"w:u")
+                        || is_name(e.name().as_ref(), b"w:strike")) => {}
+            Event::End(ref e)
+                if is_name(e.name().as_ref(), b"w:b")
+                    || is_name(e.name().as_ref(), b"w:i")
+                    || is_name(e.name().as_ref(), b"w:u")
+                    || is_name(e.name().as_ref(), b"w:strike") => {}
+            Event::Empty(ref e) if is_name(e.name().as_ref(), b"w:rPr") => {
+                writer.write_event(Event::Start(BytesStart::new("w:rPr")))?;
+                write_run_format_tags(writer, format)?;
+                writer.write_event(Event::End(quick_xml::events::BytesEnd::new("w:rPr")))?;
+            }
+            other => writer.write_event(other)?,
+        }
+    }
+    Ok(())
+}
+
+fn write_run_format_tags(writer: &mut Writer<Vec<u8>>, format: RunFormat) -> Result<(), DocxError> {
+    if format.bold {
+        writer.write_event(Event::Empty(BytesStart::new("w:b")))?;
+    }
+    if format.italic {
+        writer.write_event(Event::Empty(BytesStart::new("w:i")))?;
+    }
+    if format.underline {
+        let mut underline = BytesStart::new("w:u");
+        underline.push_attribute(("w:val", "single"));
+        writer.write_event(Event::Empty(underline))?;
+    }
+    if format.strike {
+        writer.write_event(Event::Empty(BytesStart::new("w:strike")))?;
+    }
+    Ok(())
 }
 
 fn rewrite_run_font_sizes(
@@ -1837,5 +2060,29 @@ mod tests {
             .collect::<String>();
         assert_eq!(reparsed_text, "One\nTwo\nThree");
         assert_eq!(reparsed_text.matches('\n').count(), 2);
+    }
+    #[test]
+    fn run_formatting_is_parsed_edited_and_round_tripped() {
+        let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:b/><w:i/><w:u w:val="single"/><w:strike/></w:rPr><w:t>Styled</w:t></w:r></w:p></w:body></w:document>"#;
+        let mut model = parse_document_xml(xml.as_bytes()).unwrap();
+        let format = model.paragraphs[0].fragments[0].format;
+        assert!(format.bold && format.italic && format.underline && format.strike);
+        assert!(model.set_run_format(
+            0,
+            RunFormat {
+                bold: false,
+                italic: true,
+                underline: false,
+                strike: true
+            }
+        ));
+        let rewritten = rewrite_document_xml(xml.as_bytes(), &model).unwrap();
+        let reparsed = parse_document_xml(&rewritten).unwrap();
+        let format = reparsed.paragraphs[0].fragments[0].format;
+        assert!(!format.bold && format.italic && !format.underline && format.strike);
+        let text = String::from_utf8_lossy(&rewritten);
+        assert!(!text.contains("<w:b/>"));
+        assert!(text.contains("<w:i/>"));
+        assert!(text.contains("<w:strike/>"));
     }
 }

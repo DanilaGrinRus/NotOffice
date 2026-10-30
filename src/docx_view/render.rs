@@ -165,6 +165,33 @@ pub(crate) fn render_paragraph(
                 })
                 .show(ui, |ui| {
                     ui.visuals_mut().selection.bg_fill = crate::ui_theme::selection();
+                    let run_format = fragment.format;
+                    let mut layouter = |ui: &egui::Ui, text: &str, _wrap_width: f32| {
+                        let family = if run_format.bold {
+                            crate::ui_theme::semibold_family()
+                        } else {
+                            font.family.clone()
+                        };
+                        let text_format = egui::TextFormat {
+                            font_id: egui::FontId::new(font.size, family),
+                            color: egui::Color32::BLACK,
+                            italics: run_format.italic,
+                            underline: if run_format.underline {
+                                egui::Stroke::new(1.0_f32, egui::Color32::BLACK)
+                            } else {
+                                egui::Stroke::NONE
+                            },
+                            strikethrough: if run_format.strike {
+                                egui::Stroke::new(1.0_f32, egui::Color32::BLACK)
+                            } else {
+                                egui::Stroke::NONE
+                            },
+                            ..Default::default()
+                        };
+                        let mut job = egui::text::LayoutJob::default();
+                        job.append(text, 0.0, text_format);
+                        ui.fonts(|fonts| fonts.layout_job(job))
+                    };
                     ui.add_sized(
                         [width, fragment_render_height(fragment, options.zoom)],
                         egui::TextEdit::multiline(&mut fragment.text)
@@ -173,6 +200,7 @@ pub(crate) fn render_paragraph(
                             .desired_rows(line_count)
                             .font(font.clone())
                             .text_color(egui::Color32::BLACK)
+                            .layouter(&mut layouter)
                             .frame(false),
                     )
                 })
@@ -185,6 +213,20 @@ pub(crate) fn render_paragraph(
             }
             if response.double_clicked() {
                 select_word_at_pointer(ui, id, &fragment.text, font.clone(), &response);
+            }
+            if response.changed() && fragment.text.ends_with('\n') {
+                if let Some(prefix) = next_list_prefix(&fragment.text) {
+                    fragment.text.push_str(&prefix);
+                    if let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), id) {
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::one(
+                                egui::text::CCursor::new(fragment.text.chars().count()),
+                            )));
+                        state.store(ui.ctx(), id);
+                        ui.memory_mut(|memory| memory.request_focus(id));
+                    }
+                }
             }
             // A singleline TextEdit surrenders focus to Enter. In the DOCX
             // fragment editor Enter must not end the editing session: keep the
@@ -256,4 +298,25 @@ pub(crate) fn render_table_row(
         }
     });
     options.content_width = page_content_width;
+}
+fn next_list_prefix(text: &str) -> Option<String> {
+    let body = text.strip_suffix('\n')?;
+    let line = body.rsplit('\n').next().unwrap_or(body);
+    let trimmed = line.trim_start();
+    if trimmed == "• " || trimmed == "- " {
+        return None;
+    }
+    if trimmed.starts_with("• ") || trimmed.starts_with("- ") {
+        return Some("• ".to_owned());
+    }
+    let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 && trimmed[digits..].starts_with(". ") {
+        let current = trimmed[..digits].parse::<u32>().ok()?;
+        let rest = &trimmed[digits + 2..];
+        if rest.is_empty() {
+            return None;
+        }
+        return Some(format!("{}. ", current.saturating_add(1)));
+    }
+    None
 }

@@ -12,6 +12,7 @@ fn paragraph(text: &str) -> Paragraph {
             text: text.into(),
             run_id: 0,
             font_size_half_points: None,
+            format: Default::default(),
         }],
         ..Paragraph::default()
     }

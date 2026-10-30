@@ -240,6 +240,7 @@ mod tests {
                         run_id: id,
                         text: text.to_string(),
                         font_size_half_points: None,
+                        format: Default::default(),
                     })
                     .collect(),
                 ..Default::default()

@@ -134,6 +134,7 @@ mod tests {
                         text: "Ёжик & <script>".into(),
                         run_id: 0,
                         font_size_half_points: None,
+                        format: Default::default(),
                     }],
                     ..Default::default()
                 },
@@ -143,6 +144,7 @@ mod tests {
                         text: "Ячейка".into(),
                         run_id: 0,
                         font_size_half_points: None,
+                        format: Default::default(),
                     }],
                     ..Default::default()
                 },

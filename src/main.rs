@@ -2431,6 +2431,77 @@ impl NotOfficeApp {
         }
     }
 
+    fn toggle_docx_list(&mut self, numbered: bool) {
+        let Some(package) = self.docx.as_mut() else {
+            return;
+        };
+        let Some(fragment_id) = self.selected_fragment_id else {
+            return;
+        };
+        let Some(paragraph_index) = package
+            .model
+            .paragraphs
+            .iter()
+            .position(|p| p.fragments.iter().any(|f| f.id == fragment_id))
+        else {
+            return;
+        };
+        let before = package.model.clone();
+        let Some(paragraph) = package.model.paragraphs.get_mut(paragraph_index) else {
+            return;
+        };
+        let Some(first) = paragraph.fragments.first_mut() else {
+            return;
+        };
+        let bullet = "• ";
+        let number = "1. ";
+        let old_prefix = if first.text.starts_with(bullet) {
+            Some(bullet)
+        } else if first.text.starts_with(number) {
+            Some(number)
+        } else if first.text.starts_with("- ") {
+            Some("- ")
+        } else {
+            None
+        };
+        let desired = if numbered { number } else { bullet };
+        if old_prefix == Some(desired) {
+            first.text = first.text[desired.len()..].to_owned();
+        } else if let Some(prefix) = old_prefix {
+            first.text = format!("{desired}{}", &first.text[prefix.len()..]);
+        } else {
+            first.text = format!("{desired}{}", first.text);
+        }
+        self.record_docx_edit(before);
+        self.status = tr!(
+            "Список DOCX изменён; Enter продолжает список; доступна отмена",
+            "DOCX list changed; Enter continues it; Undo available"
+        )
+        .into();
+    }
+
+    fn change_docx_run_format(&mut self, format: liteoffice::docx::RunFormat) {
+        let Some(package) = self.docx.as_mut() else {
+            return;
+        };
+        let before = package.model.clone();
+        let changed = if self.select_all_docx {
+            package.model.set_all_run_format(format)
+        } else if let Some(fragment_id) = self.selected_fragment_id {
+            package.model.set_run_format(fragment_id, format)
+        } else {
+            false
+        };
+        if changed {
+            self.record_docx_edit(before);
+            self.status = tr!(
+                "Форматирование DOCX изменено; доступна отмена",
+                "DOCX formatting changed; Undo available"
+            )
+            .into();
+        }
+    }
+
     fn change_font_size(&mut self, half_points: u16) {
         let Some(package) = self.docx.as_mut() else {
             return;
