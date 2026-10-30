@@ -92,6 +92,10 @@ pub fn format_number(value: f64, decimals: Option<u8>) -> String {
     }
 }
 
+pub fn is_simple_formula(expression: &str) -> bool {
+    evaluate(expression, |_| Some("0".into())).is_ok()
+}
+
 pub fn evaluate(
     expression: &str,
     lookup: impl Fn(&str) -> Option<String>,

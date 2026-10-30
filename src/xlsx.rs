@@ -85,6 +85,7 @@ pub struct XlsxPackage {
     pub sheets: Vec<SpreadsheetModel>,
     pub formats:
         std::collections::BTreeMap<crate::workbook_edit::CellKey, crate::workbook_edit::CellFormat>,
+    pub formulas: std::collections::BTreeMap<crate::workbook_edit::CellKey, String>,
 }
 
 impl XlsxPackage {
@@ -126,10 +127,14 @@ impl XlsxPackage {
                 Err(error) => return Err(error),
             };
         let mut formats = std::collections::BTreeMap::new();
+        let mut formulas = std::collections::BTreeMap::new();
         let mut sheets = Vec::new();
         for (sheet_name, relationship_id) in workbook_sheets(&workbook)? {
             let worksheet_path = worksheet_path(&relationships, &relationship_id)?;
             let worksheet = read_zip_part(&mut archive, &worksheet_path, &mut total_uncompressed)?;
+            for (key, formula) in parse_formulas(&worksheet, sheets.len())? {
+                formulas.insert(key, formula);
+            }
             let mut reader = Reader::from_reader(worksheet.as_slice());
             loop {
                 match reader.read_event()? {
@@ -160,6 +165,7 @@ impl XlsxPackage {
             model,
             sheets,
             formats,
+            formulas,
         })
     }
 }
@@ -202,15 +208,45 @@ fn attribute(event: &BytesStart<'_>, name: &[u8]) -> Option<String> {
         .and_then(|attribute| attribute.unescape_value().ok().map(|v| v.into_owned()))
 }
 
+fn parse_rgb(value: &str) -> Option<[u8; 3]> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    let hex = if hex.len() == 8 { &hex[2..] } else { hex };
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some([
+        u8::from_str_radix(&hex[0..2], 16).ok()?,
+        u8::from_str_radix(&hex[2..4], 16).ok()?,
+        u8::from_str_radix(&hex[4..6], 16).ok()?,
+    ])
+}
+
 fn parse_font_styles(xml: &[u8]) -> Result<Vec<crate::workbook_edit::CellFormat>, XlsxError> {
     use crate::workbook_edit::CellFormat;
     let mut fonts = Vec::new();
+    let mut fills = Vec::new();
     let mut styles = Vec::new();
     let mut reader = Reader::from_reader(xml);
     let mut font = None;
+    let mut fill: Option<Option<[u8; 3]>> = None;
     let mut in_xfs = false;
+    let mut in_fills = false;
     loop {
         match reader.read_event()? {
+            Event::Start(e) if e.name().as_ref() == b"fills" => in_fills = true,
+            Event::End(e) if e.name().as_ref() == b"fills" => in_fills = false,
+            Event::Start(e) if in_fills && e.name().as_ref() == b"fill" => fill = Some(None),
+            Event::Empty(e) if in_fills && e.name().as_ref() == b"fill" => fills.push(None),
+            Event::End(e) if in_fills && e.name().as_ref() == b"fill" => {
+                fills.push(fill.take().flatten())
+            }
+            Event::Start(e) | Event::Empty(e)
+                if fill.is_some() && e.name().as_ref() == b"fgColor" =>
+            {
+                if let Some(color) = attribute(&e, b"rgb").and_then(|value| parse_rgb(&value)) {
+                    fill = Some(Some(color));
+                }
+            }
             Event::Start(e) if e.name().as_ref() == b"font" => font = Some(CellFormat::default()),
             Event::Empty(e) if e.name().as_ref() == b"font" => fonts.push(CellFormat::default()),
             Event::End(e) if e.name().as_ref() == b"font" => {
@@ -237,7 +273,12 @@ fn parse_font_styles(xml: &[u8]) -> Result<Vec<crate::workbook_edit::CellFormat>
                     let id = attribute(&e, b"fontId")
                         .and_then(|s| s.parse::<usize>().ok())
                         .unwrap_or(0);
-                    styles.push(fonts.get(id).copied().unwrap_or_default());
+                    let fill_id = attribute(&e, b"fillId")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    let mut format = fonts.get(id).copied().unwrap_or_default();
+                    format.fill = fills.get(fill_id).copied().flatten();
+                    styles.push(format);
                 }
             }
             Event::Eof => break,
@@ -245,6 +286,50 @@ fn parse_font_styles(xml: &[u8]) -> Result<Vec<crate::workbook_edit::CellFormat>
         }
     }
     Ok(styles)
+}
+
+fn parse_formulas(
+    xml: &[u8],
+    sheet_index: usize,
+) -> Result<std::collections::BTreeMap<crate::workbook_edit::CellKey, String>, XlsxError> {
+    let mut reader = Reader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut formula = String::new();
+    let mut in_formula = false;
+    let mut current_reference = None;
+    let mut formulas = std::collections::BTreeMap::new();
+    loop {
+        match reader.read_event_into(&mut buffer)? {
+            Event::Start(e) if e.name().as_ref() == b"c" => {
+                current_reference = attribute(&e, b"r");
+                formula.clear();
+            }
+            Event::Start(e) if e.name().as_ref() == b"f" => in_formula = true,
+            Event::End(e) if e.name().as_ref() == b"f" => in_formula = false,
+            Event::Text(text) if in_formula => {
+                formula.push_str(
+                    &text
+                        .unescape()
+                        .map_err(|error| XlsxError::InvalidWorkbook(error.to_string()))?,
+                );
+            }
+            Event::End(e) if e.name().as_ref() == b"c" => {
+                if let (Some(reference), false) = (current_reference.take(), formula.is_empty()) {
+                    if let Some((row, column)) = cell_position(&reference) {
+                        if crate::table_formula::is_simple_formula(&formula) {
+                            formulas.insert((sheet_index, row, column), format!("={formula}"));
+                        }
+                    }
+                }
+                formula.clear();
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buffer.clear();
+    }
+    Ok(formulas)
 }
 
 fn workbook_sheets(xml: &[u8]) -> Result<Vec<(String, String)>, XlsxError> {

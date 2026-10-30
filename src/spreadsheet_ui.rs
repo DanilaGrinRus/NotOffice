@@ -420,6 +420,28 @@ impl SpreadsheetDocument {
         true
     }
 
+    pub fn set_cell_fill(&mut self, row: usize, column: usize, fill: Option<[u8; 3]>) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let key = (self.selected_sheet, row, column);
+        let mut format = self
+            .editor
+            .as_ref()
+            .and_then(|editor| editor.formats.get(&key))
+            .copied()
+            .unwrap_or_default();
+        format.fill = fill;
+        self.editor.as_mut().unwrap().formats.insert(key, format);
+        self.formats.insert(key, format);
+        if let Some(fill) = fill {
+            self.highlights.insert(key, fill);
+        } else {
+            self.highlights.remove(&key);
+        }
+        true
+    }
+
     pub fn clear_active_cell(&mut self) -> bool {
         let Some((row, column)) = self.selected_cell else {
             return false;
@@ -792,7 +814,6 @@ impl SpreadsheetDocument {
             egui::ComboBox::from_id_source("cell-highlight")
                 .selected_text(tr!("Цвет ячейки", "Cell colour"))
                 .show_ui(ui, |ui| {
-                    let key = (self.selected_sheet, row, column);
                     for (label, color) in [
                         (tr!("Жёлтый", "Yellow"), [255, 235, 150]),
                         (tr!("Зелёный", "Green"), [190, 235, 190]),
@@ -800,13 +821,11 @@ impl SpreadsheetDocument {
                         (tr!("Розовый", "Pink"), [248, 200, 210]),
                     ] {
                         if ui.button(label).clicked() {
-                            self.highlights.insert(key, color);
-                            changed = true;
+                            changed |= self.set_cell_fill(row, column, Some(color));
                         }
                     }
                     if ui.button(tr!("Без цвета", "No colour")).clicked() {
-                        self.highlights.remove(&key);
-                        changed = true;
+                        changed |= self.set_cell_fill(row, column, None);
                     }
                 });
             if ui
@@ -978,13 +997,10 @@ impl SpreadsheetDocument {
                     changed |= self.clear_active_cell();
                 }
                 CellAction::Color(color) => {
-                    self.highlights
-                        .insert((self.selected_sheet, row, column), color);
-                    changed = true;
+                    changed |= self.set_cell_fill(row, column, Some(color));
                 }
                 CellAction::ClearColor => {
-                    self.highlights.remove(&(self.selected_sheet, row, column));
-                    changed = true;
+                    changed |= self.set_cell_fill(row, column, None);
                 }
             }
         }
@@ -1538,6 +1554,8 @@ fn render_cells(
                                             egui::Color32::from_rgb(255, 214, 120)
                                         } else if is_match {
                                             egui::Color32::from_rgb(255, 244, 185)
+                                        } else if let Some(color) = format.fill {
+                                            egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
                                             .highlights
                                             .and_then(|colors| colors.get(&(search.formats.map(|(_, sheet)| sheet).unwrap_or(0), row, column)))

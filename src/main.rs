@@ -2274,6 +2274,7 @@ impl NotOfficeApp {
                         self.opened_path = Some(path.clone());
                         let mut book = SpreadsheetDocument::from_sheets(package.sheets);
                         book.formats = package.formats;
+                        book.formulas = package.formulas;
                         self.spreadsheet = Some(book);
                         self.docx = None;
                         self.legacy_doc = None;
@@ -2583,9 +2584,10 @@ impl NotOfficeApp {
         };
         book.sheets = snapshot.sheets;
         book.formats = snapshot.formats.clone();
-        book.formulas = snapshot.formulas;
+        book.formulas = snapshot.formulas.clone();
         if let Some(editor) = book.editor.as_mut() {
             editor.formats = snapshot.formats;
+            editor.formulas = snapshot.formulas;
         }
         if book.selected_cell.is_some_and(|(row, column)| {
             book.selected_sheet()
@@ -3765,6 +3767,7 @@ impl NotOfficeApp {
             &book.sheets,
         ));
         book.editor.as_mut().unwrap().formats = book.formats.clone();
+        book.editor.as_mut().unwrap().formulas = book.formulas.clone();
         book.selected_cell = Some((0, 0));
         book.focus_pending = true;
         self.status = tr!("Копия со значениями: текст и поддерживаемое форматирование; требуется «Сохранить как XLSX»", "Editable values copy: literal text and supported font formatting; Save As XLSX required").into();
@@ -3774,9 +3777,11 @@ impl NotOfficeApp {
         let Some(book) = self.spreadsheet.as_mut() else {
             return false;
         };
+        let formulas = book.formulas.clone();
         let Some(editor) = book.editor.as_mut() else {
             return false;
         };
+        editor.formulas = formulas;
         match editor.save(&path, &book.sheets) {
             Ok(()) => {
                 if !self.clear_current_recovery() {

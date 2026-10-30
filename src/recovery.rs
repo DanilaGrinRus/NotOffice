@@ -314,7 +314,14 @@ fn read_workbook_payload(
         if sheet >= sheets.len() || row >= 1_048_576 || column >= 16_384 {
             return Err(invalid());
         }
-        formats.insert((sheet, row, column), CellFormat { size, bold });
+        formats.insert(
+            (sheet, row, column),
+            CellFormat {
+                size,
+                bold,
+                fill: None,
+            },
+        );
     }
     if cursor.position != body.len() {
         return Err(invalid());
@@ -1317,6 +1324,7 @@ mod tests {
             CellFormat {
                 size: 18,
                 bold: true,
+                fill: None,
             },
         );
         {

@@ -17,12 +17,14 @@ pub type CellKey = (usize, usize, usize);
 pub struct CellFormat {
     pub size: u16,
     pub bold: bool,
+    pub fill: Option<[u8; 3]>,
 }
 impl Default for CellFormat {
     fn default() -> Self {
         Self {
             size: 12,
             bold: false,
+            fill: None,
         }
     }
 }
@@ -34,6 +36,7 @@ pub struct WorkbookEditor {
     baseline: Vec<SpreadsheetModel>,
     saved_formats: BTreeMap<CellKey, CellFormat>,
     pub formats: BTreeMap<CellKey, CellFormat>,
+    pub formulas: BTreeMap<CellKey, String>,
 }
 
 impl WorkbookEditor {
@@ -45,6 +48,7 @@ impl WorkbookEditor {
             baseline: sheets.to_vec(),
             saved_formats: BTreeMap::new(),
             formats: BTreeMap::new(),
+            formulas: BTreeMap::new(),
         }
     }
     pub fn saved_path(&self) -> Option<&Path> {
@@ -78,7 +82,7 @@ impl WorkbookEditor {
             Ok(())
         };
         check_conflict()?;
-        let parts = build_parts(sheets, &self.formats)?;
+        let parts = build_parts(sheets, &self.formats, &self.formulas)?;
         if parts
             .iter()
             .map(|(name, bytes)| name.len() + bytes.len())
@@ -212,6 +216,7 @@ fn classify(value: &str) -> CellKind {
 fn build_parts(
     sheets: &[SpreadsheetModel],
     formats: &BTreeMap<CellKey, CellFormat>,
+    formulas: &BTreeMap<CellKey, String>,
 ) -> Result<Vec<(String, String)>, DocxError> {
     if sheets.is_empty()
         || sheets.len() > 64
@@ -238,6 +243,14 @@ fn build_parts(
         }
         if !font_styles.contains(f) {
             font_styles.push(*f);
+        }
+    }
+    let mut fill_colors: Vec<[u8; 3]> = Vec::new();
+    for format in formats.values() {
+        if let Some(fill) = format.fill {
+            if !fill_colors.contains(&fill) {
+                fill_colors.push(fill);
+            }
         }
     }
     // One style per (font, number format) pair; text keeps Excel's Text format.
@@ -309,6 +322,18 @@ fn build_parts(
                 style_entries.len() - 1
             };
             let reference = format!("{}{}", column_name(c.column), c.row + 1);
+            if let Some(formula) = formulas
+                .get(&(sheet_index, c.row, c.column))
+                .filter(|formula| crate::table_formula::is_simple_formula(formula))
+            {
+                let formula = escaped(formula.trim_start_matches('='))?;
+                let tag = if looks_number(&c.value) { "n" } else { "str" };
+                xml.push_str(&format!(
+                    r#"<c r="{reference}" s="{style}" t="{tag}"><f>{formula}</f><v>{}</v></c>"#,
+                    escaped(&c.value)?
+                ));
+                continue;
+            }
             match kind {
                 CellKind::Text => xml.push_str(&format!(
                     r#"<c r="{reference}" s="{style}" t="inlineStr"><is><t xml:space="preserve">{}</t></is></c>"#,
@@ -348,13 +373,22 @@ fn build_parts(
             if f.bold { "<b/>" } else { "" }
         ));
     }
-    style_xml.push_str(&format!(r#"</fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="{}">"#,style_entries.len()));
+    style_xml.push_str(&format!(r#"</fonts><fills count="{}"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>"#, fill_colors.len() + 2));
+    for fill in &fill_colors {
+        style_xml.push_str(&format!(r#"<fill><patternFill patternType="solid"><fgColor rgb="FF{:02X}{:02X}{:02X}"/><bgColor indexed="64"/></patternFill></fill>"#, fill[0], fill[1], fill[2]));
+    }
+    style_xml.push_str(&format!(r#"</fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="{}">"#,style_entries.len()));
     for (format, number_format) in &style_entries {
         let font = font_styles
             .iter()
             .position(|candidate| candidate == format)
             .unwrap_or(0);
-        style_xml.push_str(&format!(r#"<xf numFmtId="{number_format}" fontId="{font}" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>"#));
+        let fill = format
+            .fill
+            .and_then(|fill| fill_colors.iter().position(|candidate| *candidate == fill))
+            .map(|index| index + 2)
+            .unwrap_or(0);
+        style_xml.push_str(&format!(r#"<xf numFmtId="{number_format}" fontId="{font}" fillId="{fill}" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1" applyFill="1"/>"#));
     }
     style_xml.push_str(r#"</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"#);
     parts.extend([
@@ -412,6 +446,7 @@ mod tests {
             CellFormat {
                 size: 20,
                 bold: true,
+                fill: Some([255, 235, 150]),
             },
         );
         let output = dir.path().join("copy.xlsx");
@@ -433,7 +468,8 @@ mod tests {
             reopened.formats[&(0, 0, 0)],
             CellFormat {
                 size: 20,
-                bold: true
+                bold: true,
+                fill: Some([255, 235, 150])
             }
         );
         assert_eq!(std::fs::read(&source).unwrap(), b"original bytes");
@@ -556,5 +592,27 @@ mod tests {
         }];
         assert!(editor.save(&dir.path().join("bad.xlsx"), &invalid).is_err());
         assert_eq!(std::fs::read(origin).unwrap(), b"protected original");
+    }
+    #[test]
+    fn explicit_formula_and_fill_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.xlsx");
+        std::fs::write(&source, b"original").unwrap();
+        let data = sheets();
+        let mut editor = WorkbookEditor::new(source, &data);
+        editor.formats.insert(
+            (0, 0, 0),
+            CellFormat {
+                size: 20,
+                bold: true,
+                fill: Some([255, 235, 150]),
+            },
+        );
+        editor.formulas.insert((0, 0, 0), "=1+2".into());
+        let output = dir.path().join("copy.xlsx");
+        editor.save(&output, &data).unwrap();
+        let reopened = XlsxPackage::open(&output).unwrap();
+        assert_eq!(reopened.formulas[&(0, 0, 0)], "=1+2");
+        assert_eq!(reopened.formats[&(0, 0, 0)].fill, Some([255, 235, 150]));
     }
 }

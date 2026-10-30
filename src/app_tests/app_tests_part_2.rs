@@ -732,6 +732,7 @@ fn workbook_undo_redo_restores_values_and_formatting() {
         CellFormat {
             size: 18,
             bold: true,
+            fill: None,
         },
     );
     app.record_workbook_edit(before);
@@ -753,7 +754,8 @@ fn workbook_undo_redo_restores_values_and_formatting() {
         app.spreadsheet.as_ref().unwrap().formats[&(0, 0, 0)],
         CellFormat {
             size: 18,
-            bold: true
+            bold: true,
+            fill: None
         }
     );
 }
