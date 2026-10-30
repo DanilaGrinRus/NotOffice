@@ -33,6 +33,18 @@ pub struct SpreadsheetDocument {
     pub highlights: CellHighlights,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellAction {
+    CopyRow,
+    CopyColumn,
+    Paste,
+    InsertRow,
+    InsertColumn,
+    Clear,
+    Color([u8; 3]),
+    ClearColor,
+}
+
 pub type CellHighlights = std::collections::BTreeMap<(usize, usize, usize), [u8; 3]>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +57,8 @@ pub enum TableClipboard {
 pub struct TableSelection {
     pub row: Option<usize>,
     pub column: Option<usize>,
+    pub range_start: Option<(usize, usize)>,
+    pub range_end: Option<(usize, usize)>,
 }
 
 impl SpreadsheetDocument {
@@ -246,32 +260,85 @@ impl SpreadsheetDocument {
             .map(|value| crate::table_formula::format_number(value, self.decimal_places))
     }
 
-    pub fn fill_down(&mut self, source_row: usize, column: usize, target_row: usize) -> bool {
-        if target_row <= source_row || self.editor.is_none() {
+    pub fn fill_range(
+        &mut self,
+        top: usize,
+        left: usize,
+        bottom: usize,
+        right: usize,
+        target: usize,
+    ) -> bool {
+        if self.editor.is_none() || (target >= top && target <= bottom) {
             return false;
         }
-        let Some(sheet) = self.sheets.get_mut(self.selected_sheet) else {
-            return false;
-        };
-        let source = sheet.cell_value(source_row, column).to_owned();
-        let previous = source_row
-            .checked_sub(1)
-            .map(|row| sheet.cell_value(row, column).to_owned());
-        let step = previous
-            .as_deref()
-            .and_then(|value| value.trim().parse::<f64>().ok())
-            .zip(source.trim().parse::<f64>().ok())
-            .map(|(previous, current)| current - previous);
-        for row in source_row + 1..=target_row {
-            let value = if let Some(step) = step {
-                let current = source.trim().parse::<f64>().unwrap_or(0.0);
-                format!("{}", current + step * (row - source_row) as f64)
-            } else {
-                source.clone()
+        let sources = {
+            let Some(sheet) = self.sheets.get(self.selected_sheet) else {
+                return false;
             };
-            self.set_cell_text(row, column, value);
+            (left..=right)
+                .map(|column| {
+                    (
+                        column,
+                        (top..=bottom)
+                            .map(|row| sheet.cell_value(row, column).to_owned())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        for (column, source) in sources {
+            if source.is_empty() {
+                continue;
+            }
+            let numbers = source
+                .iter()
+                .map(|value| value.trim().parse::<f64>().ok())
+                .collect::<Option<Vec<_>>>()
+                .filter(|values| values.len() >= 2);
+            let step = numbers.as_ref().map(|values| {
+                (values[values.len() - 1] - values[values.len() - 2]) / (values.len() - 1) as f64
+            });
+            if target > bottom {
+                for row in bottom + 1..=target {
+                    let value = if let Some(step) = step {
+                        let last = numbers.as_ref().unwrap().last().copied().unwrap_or(0.0);
+                        format!("{}", last + step * (row - bottom) as f64)
+                    } else {
+                        source[source.len() - 1].clone()
+                    };
+                    self.set_cell_text(row, column, value);
+                }
+            } else {
+                for row in target..top {
+                    let value = if let Some(step) = step {
+                        let first = numbers.as_ref().unwrap()[0];
+                        format!("{}", first - step * (top - row) as f64)
+                    } else {
+                        source[0].clone()
+                    };
+                    self.set_cell_text(row, column, value);
+                }
+            }
         }
         true
+    }
+
+    pub fn copy_row(&mut self, row: usize) -> Option<String> {
+        let sheet = self.selected_sheet()?;
+        let values = (0..sheet.column_count.min(16_384))
+            .map(|column| sheet.cell_value(row, column).to_owned())
+            .collect::<Vec<_>>();
+        self.table_clipboard = Some(TableClipboard::Row(values.clone()));
+        Some(values.join("\t"))
+    }
+
+    pub fn copy_column(&mut self, column: usize) -> Option<String> {
+        let sheet = self.selected_sheet()?;
+        let values = (0..sheet.row_count.min(10_000))
+            .map(|row| sheet.cell_value(row, column).to_owned())
+            .collect::<Vec<_>>();
+        self.table_clipboard = Some(TableClipboard::Column(values.clone()));
+        Some(values.join("\n"))
     }
 
     pub fn copy_selected_row_or_column(&mut self) -> Option<String> {
@@ -332,18 +399,18 @@ impl SpreadsheetDocument {
         match clipboard {
             TableClipboard::Row(values) => {
                 for (offset, value) in values.into_iter().enumerate() {
-                    if column + offset >= 16_384 {
+                    if offset >= 16_384 {
                         break;
                     }
-                    self.set_cell_text(row, column + offset, value);
+                    self.set_cell_text(row, offset, value);
                 }
             }
             TableClipboard::Column(values) => {
                 for (offset, value) in values.into_iter().enumerate() {
-                    if row + offset >= 1_048_576 {
+                    if offset >= 1_048_576 {
                         break;
                     }
-                    self.set_cell_text(row + offset, column, value);
+                    self.set_cell_text(offset, column, value);
                 }
             }
         }
@@ -361,6 +428,26 @@ impl SpreadsheetDocument {
         true
     }
 
+    pub fn clear_selected_range(&mut self) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let Some(start) = self.selection.range_start else {
+            return false;
+        };
+        let Some(end) = self.selection.range_end else {
+            return false;
+        };
+        let (top, bottom) = (start.0.min(end.0), start.0.max(end.0));
+        let (left, right) = (start.1.min(end.1), start.1.max(end.1));
+        for row in top..=bottom {
+            for column in left..=right {
+                self.set_cell_text(row, column, String::new());
+            }
+        }
+        true
+    }
+
     pub fn insert_row_after_selected(&mut self) -> bool {
         if self.editor.is_none() {
             return false;
@@ -374,7 +461,7 @@ impl SpreadsheetDocument {
             return false;
         };
         for cell in &mut sheet.cells {
-            if cell.row > row {
+            if cell.row >= row {
                 cell.row += 1;
             }
         }
@@ -406,7 +493,7 @@ impl SpreadsheetDocument {
             return false;
         };
         for cell in &mut sheet.cells {
-            if cell.column > column {
+            if cell.column >= column {
                 cell.column += 1;
             }
         }
@@ -435,7 +522,6 @@ impl SpreadsheetDocument {
             return false;
         }
         let (row, column) = self.selected_cell.unwrap_or((0, 0));
-        self.selected_cell = Some((row, column));
         let mut changed = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(format!("{}{}", column_name(column), row + 1));
@@ -557,14 +643,23 @@ impl SpreadsheetDocument {
                 self.horizontal_offset += 160.0;
             }
             if ui
-                .button(tr!("Копировать строку/столбец", "Copy row/column"))
+                .button(tr!("Копировать строку", "Copy row"))
                 .on_hover_text(tr!(
-                    "Скопировать выбранную строку или столбец в буфер",
-                    "Copy the selected row or column to the clipboard"
+                    "Скопировать строку в буфер",
+                    "Copy the row to the clipboard"
                 ))
                 .clicked()
             {
-                if let Some(text) = self.copy_selected_row_or_column() {
+                if let Some(text) = self.copy_row(self.selection.row.unwrap_or(row)) {
+                    ui.ctx().copy_text(text);
+                }
+            }
+            if ui
+                .button(tr!("Копировать столбец", "Copy column"))
+                .on_hover_text(tr!("Скопировать столбец в буфер", "Copy the column to the clipboard"))
+                .clicked()
+            {
+                if let Some(text) = self.copy_column(self.selection.column.unwrap_or(column)) {
                     ui.ctx().copy_text(text);
                 }
             }
@@ -583,14 +678,14 @@ impl SpreadsheetDocument {
             }
             if ui
                 .button(tr!("Добавить строку", "Insert row"))
-                .on_hover_text(tr!("Вставить пустую строку после выбранной", "Insert an empty row after the selected one"))
+                .on_hover_text(tr!("Вставить пустую строку выше выбранной", "Insert an empty row above the selected one"))
                 .clicked()
             {
                 changed |= self.insert_row_after_selected();
             }
             if ui
                 .button(tr!("Добавить столбец", "Insert column"))
-                .on_hover_text(tr!("Вставить пустой столбец после выбранного", "Insert an empty column after the selected one"))
+                .on_hover_text(tr!("Вставить пустой столбец левее выбранного", "Insert an empty column before the selected one"))
                 .clicked()
             {
                 changed |= self.insert_column_after_selected();
@@ -654,6 +749,8 @@ impl SpreadsheetDocument {
         let clear_active = edit.clear_cell_selection;
         if clear_active {
             self.selected_cell = None;
+            self.selection.range_start = None;
+            self.selection.range_end = None;
             self.focus_pending = false;
         }
         let Some(sheet) = self.selected_sheet() else {
@@ -677,6 +774,8 @@ impl SpreadsheetDocument {
                     .is_some_and(|pos| pos.y < table_rect.top() && ui.max_rect().contains(pos));
             if clicked_above {
                 self.selected_cell = None;
+                self.selection.range_start = None;
+                self.selection.range_end = None;
                 self.focus_pending = false;
             }
         }
@@ -723,8 +822,8 @@ impl SpreadsheetDocument {
                 }
             }
         }
-        if let Some((source_row, column, target_row)) = edit.fill {
-            changed |= self.fill_down(source_row, column, target_row);
+        if let Some((top, left, bottom, right, target)) = edit.fill {
+            changed |= self.fill_range(top, left, bottom, right, target);
         }
         if let Some(cell) = edit.navigate.or(selected) {
             if self.selected_cell != Some(cell) {
@@ -743,6 +842,44 @@ impl SpreadsheetDocument {
                     self.preview_anchor = Some(cell);
                 }
                 ui.ctx().request_repaint();
+            }
+        }
+        if let (Some((row, column)), Some(action)) = (edit.context_cell, edit.context_action) {
+            self.selected_cell = Some((row, column));
+            match action {
+                CellAction::CopyRow => {
+                    if let Some(text) = self.copy_row(row) {
+                        ui.ctx().copy_text(text);
+                    }
+                }
+                CellAction::CopyColumn => {
+                    if let Some(text) = self.copy_column(column) {
+                        ui.ctx().copy_text(text);
+                    }
+                }
+                CellAction::Paste => {
+                    changed |= self.paste_selected_row_or_column();
+                }
+                CellAction::InsertRow => {
+                    self.selection.row = Some(row);
+                    changed |= self.insert_row_after_selected();
+                }
+                CellAction::InsertColumn => {
+                    self.selection.column = Some(column);
+                    changed |= self.insert_column_after_selected();
+                }
+                CellAction::Clear => {
+                    changed |= self.clear_active_cell();
+                }
+                CellAction::Color(color) => {
+                    self.highlights
+                        .insert((self.selected_sheet, row, column), color);
+                    changed = true;
+                }
+                CellAction::ClearColor => {
+                    self.highlights.remove(&(self.selected_sheet, row, column));
+                    changed = true;
+                }
             }
         }
         if let Some((row, column)) = edit.dialog {
@@ -767,11 +904,13 @@ struct InlineEdit {
     navigate: Option<(usize, usize)>,
     horizontal_offset: f32,
     vertical_offset: f32,
-    fill: Option<(usize, usize, usize)>,
+    fill: Option<(usize, usize, usize, usize, usize)>,
     submit: Option<(usize, usize, String)>,
     clear_cell_selection: bool,
     table_rect: Option<egui::Rect>,
     dialog: Option<(usize, usize)>,
+    context_cell: Option<(usize, usize)>,
+    context_action: Option<CellAction>,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -1051,7 +1190,7 @@ fn render_cells(
                     .color(egui::Color32::BLACK),
             );
             ui.label(
-                egui::RichText::new(if search.editable { tr!("Щёлкните ячейку и вводите. Tab — следующий столбец; Enter — следующая строка; Shift меняет направление.", "Click a cell and type. Tab: next column; Enter: next row. Shift reverses direction.") } else { tr!("Просмотр таблицы — только чтение", "Spreadsheet preview — read-only") })
+                egui::RichText::new(if search.editable { tr!("Щёлкните ячейку и вводите. Shift+клик — диапазон; синий маркер — заполнение; Shift+колесо — сдвиг.", "Click a cell and type. Shift+click: range; blue handle: fill; Shift+wheel: pan.") } else { tr!("Просмотр таблицы — только чтение. Shift+клик — диапазон; Shift+колесо — сдвиг.", "Spreadsheet preview — read-only. Shift+click: range; Shift+wheel: pan.") })
                     .size(small_size)
                     .color(egui::Color32::DARK_GRAY),
             );
@@ -1176,6 +1315,8 @@ fn render_cells(
                                     if let Some(selection) = selection.as_deref_mut() {
                                         selection.row = Some(row);
                                         selection.column = None;
+                                        selection.range_start = None;
+                                        selection.range_end = None;
                                     }
                                 }
                                 for (column, width) in columns.clone().zip(&column_widths) {
@@ -1188,6 +1329,28 @@ fn render_cells(
                                     let selected_by_table = selection.as_ref().is_some_and(|selection| {
                                         selection.row == Some(row) || selection.column == Some(column)
                                     });
+                                    let selected_by_range = selection.as_ref().is_some_and(|selection| {
+                                        match (selection.range_start, selection.range_end) {
+                                            (Some((r1, c1)), Some((r2, c2))) => {
+                                                row >= r1.min(r2)
+                                                    && row <= r1.max(r2)
+                                                    && column >= c1.min(c2)
+                                                    && column <= c1.max(c2)
+                                            }
+                                            _ => false,
+                                        }
+                                    });
+                                    let fill_preview = edit.as_ref().and_then(|edit| edit.fill).is_some_and(
+                                        |(top, left, bottom, right, target)| {
+                                            column >= left
+                                                && column <= right
+                                                && if target > bottom {
+                                                    row > bottom && row <= target
+                                                } else {
+                                                    row >= target && row < top
+                                                }
+                                        },
+                                    );
                                     let response = egui::Frame::none()
                                         .fill(if is_target {
                                             egui::Color32::from_rgb(255, 214, 120)
@@ -1199,6 +1362,10 @@ fn render_cells(
                                             .copied()
                                         {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
+                                        } else if fill_preview {
+                                            egui::Color32::from_rgb(220, 236, 250)
+                                        } else if selected_by_range {
+                                            egui::Color32::from_rgb(239, 226, 202)
                                         } else if is_active {
                                             egui::Color32::from_rgb(211, 234, 255)
                                         } else if selected_by_table {
@@ -1264,7 +1431,7 @@ fn render_cells(
                                             } else {response}
                                         })
                                         .inner;
-                                    if is_active && search.editable {
+                                    if is_active && search.editable && !selected_by_table {
                                         if let Some(edit) = edit.as_deref_mut() {
                                             let handle_rect = egui::Rect::from_center_size(
                                                 response.rect.right_bottom() + egui::vec2(-3.0, -3.0),
@@ -1284,18 +1451,99 @@ fn render_cells(
                                             ui.painter().rect_filled(handle_rect, 1.0, egui::Color32::from_rgb(55, 125, 190));
                                             if handle.dragged() {
                                                 if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                                                    let (top, left, bottom, right) = selection
+                                                        .as_ref()
+                                                        .and_then(|selection| {
+                                                            Some((
+                                                                selection.range_start?.0.min(selection.range_end?.0),
+                                                                selection.range_start?.1.min(selection.range_end?.1),
+                                                                selection.range_start?.0.max(selection.range_end?.0),
+                                                                selection.range_start?.1.max(selection.range_end?.1),
+                                                            ))
+                                                        })
+                                                        .unwrap_or((row, column, row, column));
                                                     let row_height = 22.0 * zoom;
                                                     let delta = ((pointer.y - response.rect.bottom()) / row_height).ceil() as isize;
-                                                    let target = row.saturating_add_signed(delta);
-                                                    if target > row {
-                                                        edit.fill = Some((row, column, target));
+                                                    let target = if delta >= 0 {
+                                                        bottom.saturating_add(delta as usize)
+                                                    } else {
+                                                        top.saturating_sub((-delta) as usize)
+                                                    };
+                                                    if target < top || target > bottom {
+                                                        edit.fill = Some((top, left, bottom, right, target));
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                    if response.secondary_clicked() {
+                                        selected = Some((row, column));
+                                        if let Some(edit) = edit.as_deref_mut() {
+                                            edit.context_cell = Some((row, column));
+                                        }
+                                    }
+                                    let _ = response.context_menu(|ui| {
+                                        if let Some(edit) = edit.as_deref_mut() {
+                                            let set = |edit: &mut InlineEdit, action: CellAction| {
+                                                edit.context_action = Some(action);
+                                            };
+                                            if ui.button(tr!("Копировать строку", "Copy row")).clicked() {
+                                                set(edit, CellAction::CopyRow);
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(tr!("Копировать столбец", "Copy column")).clicked() {
+                                                set(edit, CellAction::CopyColumn);
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(tr!("Вставить", "Paste")).clicked() {
+                                                set(edit, CellAction::Paste);
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(tr!("Вставить строку выше", "Insert row above")).clicked() {
+                                                set(edit, CellAction::InsertRow);
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(tr!("Вставить столбец левее", "Insert column left")).clicked() {
+                                                set(edit, CellAction::InsertColumn);
+                                                ui.close_menu();
+                                            }
+                                            if ui.button(tr!("Очистить", "Clear")).clicked() {
+                                                set(edit, CellAction::Clear);
+                                                ui.close_menu();
+                                            }
+                                            ui.menu_button(tr!("Цвет", "Colour"), |ui| {
+                                                for (label, color) in [
+                                                    (tr!("Жёлтый", "Yellow"), [255, 235, 150]),
+                                                    (tr!("Зелёный", "Green"), [190, 235, 190]),
+                                                    (tr!("Голубой", "Blue"), [190, 225, 245]),
+                                                    (tr!("Розовый", "Pink"), [248, 200, 210]),
+                                                ] {
+                                                    if ui.button(label).clicked() {
+                                                        set(edit, CellAction::Color(color));
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                                if ui.button(tr!("Без цвета", "No colour")).clicked() {
+                                                    set(edit, CellAction::ClearColor);
+                                                    ui.close_menu();
+                                                }
+                                            });
+                                        }
+                                    });
                                     if response.clicked() {
                                         selected = Some((row, column));
+                                        if let Some(selection) = selection.as_deref_mut() {
+                                            if ui.input(|input| input.modifiers.shift)
+                                                && selection.range_start.is_some()
+                                            {
+                                                selection.range_end = Some((row, column));
+                                            } else {
+                                                selection.range_start = Some((row, column));
+                                                selection.range_end = Some((row, column));
+                                            }
+                                            selection.row = None;
+                                            selection.column = None;
+                                        }
                                     }
                                     if response.double_clicked() && !search.editable {
                                         if let Some(edit) = edit.as_deref_mut() {

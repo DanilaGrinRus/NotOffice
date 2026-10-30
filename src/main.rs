@@ -1174,11 +1174,20 @@ impl NotOfficeApp {
         if self.decision_pending() {
             return;
         }
-        let has_selection = self.spreadsheet.as_ref().is_some_and(|book| {
-            book.editor.is_some()
-                && (book.selection.row.is_some() || book.selection.column.is_some())
-        });
-        if !has_selection || ctx.wants_keyboard_input() {
+        let (has_selection, has_range, has_active_cell) = self
+            .spreadsheet
+            .as_ref()
+            .map(|book| {
+                (
+                    book.selection.row.is_some() || book.selection.column.is_some(),
+                    book.selection.range_start.is_some()
+                        && book.selection.range_end.is_some()
+                        && book.selection.range_start != book.selection.range_end,
+                    book.selected_cell.is_some(),
+                )
+            })
+            .unwrap_or((false, false, false));
+        if !(has_selection || has_range || has_active_cell) {
             return;
         }
         if !ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
@@ -1188,6 +1197,8 @@ impl NotOfficeApp {
         let changed = self.spreadsheet.as_mut().is_some_and(|book| {
             if has_selection {
                 book.delete_selected_row_or_column()
+            } else if has_range {
+                book.clear_selected_range()
             } else {
                 book.clear_active_cell()
             }
