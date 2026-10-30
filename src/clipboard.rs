@@ -34,7 +34,7 @@ pub fn read_text() -> Result<String, ClipboardError> {
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     };
-    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
     use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 
     unsafe {
@@ -53,11 +53,20 @@ pub fn read_text() -> Result<String, ClipboardError> {
             if pointer.is_null() {
                 return Err(ClipboardError::Unavailable);
             }
+            // Never scan past the HGLOBAL allocation. A hostile clipboard
+            // owner can publish CF_UNICODETEXT without a terminator; trusting
+            // only our own byte cap would read out of bounds.
+            let allocation_bytes = GlobalSize(handle) as usize;
+            if allocation_bytes < 2 {
+                let _ = GlobalUnlock(handle);
+                return Err(ClipboardError::Empty);
+            }
+            let max_units = (allocation_bytes / 2).min(MAX_CLIPBOARD_TEXT_BYTES / 2);
             let mut length = 0usize;
-            while length < MAX_CLIPBOARD_TEXT_BYTES / 2 && *pointer.add(length) != 0 {
+            while length < max_units && *pointer.add(length) != 0 {
                 length += 1;
             }
-            if length >= MAX_CLIPBOARD_TEXT_BYTES / 2 {
+            if length >= max_units {
                 let _ = GlobalUnlock(handle);
                 return Err(ClipboardError::TooLarge);
             }

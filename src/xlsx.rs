@@ -12,6 +12,11 @@ const MAX_XLSX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_XLSX_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_XLSX_UNCOMPRESSED_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_XLSX_PARTS: usize = 4_096;
+const MAX_XLSX_CELLS_PER_SHEET: usize = 250_000;
+const MAX_XLSX_TOTAL_CELLS: usize = 500_000;
+const MAX_XLSX_SHARED_STRINGS: usize = 250_000;
+const MAX_EXCEL_ROWS: usize = 1_048_576;
+const MAX_EXCEL_COLUMNS: usize = 16_384;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpreadsheetCell {
@@ -146,6 +151,11 @@ impl XlsxPackage {
                                     .and_then(|s| styles.get(s)),
                             )
                         {
+                            if formats.len() >= MAX_XLSX_TOTAL_CELLS {
+                                return Err(XlsxError::ResourceLimit(
+                                    "formatted-cell budget exceeded".into(),
+                                ));
+                            }
                             formats.insert((sheets.len(), position.0, position.1), *format);
                         }
                     }
@@ -153,12 +163,19 @@ impl XlsxPackage {
                     _ => {}
                 }
             }
-            sheets.push(parse_worksheet(
-                &worksheet,
-                &shared_strings,
-                sheet_name,
-                &date_styles,
-            )?);
+            let parsed_sheet =
+                parse_worksheet(&worksheet, &shared_strings, sheet_name, &date_styles)?;
+            let total_cells = sheets
+                .iter()
+                .map(|sheet: &SpreadsheetModel| sheet.cells.len())
+                .sum::<usize>()
+                .saturating_add(parsed_sheet.cells.len());
+            if total_cells > MAX_XLSX_TOTAL_CELLS {
+                return Err(XlsxError::ResourceLimit(
+                    "workbook cell count exceeds the 500000-cell budget".into(),
+                ));
+            }
+            sheets.push(parsed_sheet);
         }
         let model = sheets.first().cloned().ok_or(XlsxError::MissingWorksheet)?;
         Ok(Self {
@@ -323,6 +340,11 @@ fn parse_formulas(
                 if let (Some(reference), false) = (current_reference.take(), formula.is_empty()) {
                     if let Some((row, column)) = cell_position(&reference) {
                         if crate::table_formula::is_simple_formula(&formula) {
+                            if formulas.len() >= MAX_XLSX_CELLS_PER_SHEET {
+                                return Err(XlsxError::ResourceLimit(
+                                    "formula budget exceeded".into(),
+                                ));
+                            }
                             formulas.insert((sheet_index, row, column), format!("={formula}"));
                         }
                     }
@@ -427,6 +449,11 @@ fn parse_shared_strings(xml: &[u8]) -> Result<Vec<String>, XlsxError> {
             }
             Event::End(event) if event.name().as_ref() == b"si" => {
                 in_string = false;
+                if strings.len() >= MAX_XLSX_SHARED_STRINGS {
+                    return Err(XlsxError::ResourceLimit(
+                        "shared strings exceed the cell budget".into(),
+                    ));
+                }
                 strings.push(std::mem::take(&mut value));
             }
             Event::Start(event) if in_string && event.name().as_ref() == b"t" => in_text = true,
@@ -455,10 +482,17 @@ fn cell_position(reference: &str) -> Option<(usize, usize)> {
         .parse::<usize>()
         .ok()?
         .checked_sub(1)?;
-    let column = letters.chars().fold(0usize, |value, letter| {
-        value * 26 + (letter.to_ascii_uppercase() as usize - 'A' as usize + 1)
-    });
-    column.checked_sub(1).map(|column| (row, column))
+    if row >= MAX_EXCEL_ROWS {
+        return None;
+    }
+    let mut column = 0usize;
+    for letter in letters.bytes() {
+        column = column
+            .checked_mul(26)?
+            .checked_add((letter.to_ascii_uppercase() - b'A' + 1) as usize)?;
+    }
+    let column = column.checked_sub(1)?;
+    (column < MAX_EXCEL_COLUMNS).then_some((row, column))
 }
 
 fn parse_date_styles(xml: &[u8]) -> Result<Vec<bool>, XlsxError> {
@@ -488,6 +522,11 @@ fn parse_date_styles(xml: &[u8]) -> Result<Vec<bool>, XlsxError> {
                     || custom
                         .get(&id)
                         .is_some_and(|code| format_looks_like_date(code));
+                if styles.len() >= 4096 {
+                    return Err(XlsxError::ResourceLimit(
+                        "date-style budget exceeded".into(),
+                    ));
+                }
                 styles.push(is_date);
             }
             Event::Eof => break,
@@ -598,6 +637,11 @@ fn parse_worksheet(
                         if let Some(iso) = value.parse::<f64>().ok().and_then(excel_serial_to_iso) {
                             displayed_value = iso;
                         }
+                    }
+                    if cells.len() >= MAX_XLSX_CELLS_PER_SHEET {
+                        return Err(XlsxError::ResourceLimit(
+                            "worksheet cell count exceeds the 250000-cell budget".into(),
+                        ));
                     }
                     cells.push(SpreadsheetCell {
                         row,
@@ -731,5 +775,16 @@ mod tests {
     fn invalid_unicode_color_is_ignored_without_panicking() {
         assert_eq!(parse_rgb("€12345"), None);
         assert_eq!(parse_rgb("FFFFEB96"), Some([255, 235, 150]));
+    }
+    #[test]
+    fn cell_references_are_bounded_to_excel_limits() {
+        assert_eq!(cell_position("A1"), Some((0, 0)));
+        assert_eq!(cell_position("XFD1048576"), Some((1_048_575, 16_383)));
+        assert_eq!(cell_position("A1048577"), None);
+        assert_eq!(cell_position("XFE1"), None);
+        assert_eq!(
+            cell_position("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1"),
+            None
+        );
     }
 }
