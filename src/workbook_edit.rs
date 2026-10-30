@@ -56,6 +56,23 @@ impl WorkbookEditor {
     pub fn saved_path(&self) -> Option<&Path> {
         self.saved_path.as_deref()
     }
+    pub fn origin(&self) -> &Path {
+        &self.origin
+    }
+
+    pub fn mark_saved(
+        &mut self,
+        path: &Path,
+        sheets: &[SpreadsheetModel],
+    ) -> Result<(), DocxError> {
+        self.fingerprint = Some(source_fingerprint(path)?);
+        self.saved_path = Some(path.to_path_buf());
+        self.baseline = sheets.to_vec();
+        self.saved_formats = self.formats.clone();
+        self.saved_formulas = self.formulas.clone();
+        Ok(())
+    }
+
     pub fn set_initial_formulas(&mut self, formulas: BTreeMap<CellKey, String>) {
         self.formulas = formulas.clone();
         self.saved_formulas = formulas;

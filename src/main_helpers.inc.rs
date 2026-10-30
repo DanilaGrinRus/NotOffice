@@ -843,6 +843,144 @@ fn open_doc_isolated(path: &Path) -> Result<LegacyDocPackage, String> {
 }
 
 
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IsolatedXlsxSave {
+    origin: PathBuf,
+    saved_path: Option<PathBuf>,
+    sheets: Vec<liteoffice::xlsx::SpreadsheetModel>,
+    formats: Vec<(
+        liteoffice::workbook_edit::CellKey,
+        liteoffice::workbook_edit::CellFormat,
+    )>,
+    formulas: Vec<(liteoffice::workbook_edit::CellKey, String)>,
+}
+
+fn xlsx_save_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--xlsx-save-worker") {
+        return None;
+    }
+    if args.len() != 4 {
+        return Some(2);
+    }
+    let destination = PathBuf::from(&args[1]);
+    let data_path = PathBuf::from(&args[2]);
+    let result_path = PathBuf::from(&args[3]);
+    let result = (|| -> Result<(), String> {
+        let data: IsolatedXlsxSave = serde_json::from_slice(
+            &std::fs::read(&data_path).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let mut editor = liteoffice::workbook_edit::WorkbookEditor::new(
+            data.origin.clone(),
+            &data.sheets,
+        );
+        editor.formats = data.formats.into_iter().collect();
+        editor.formulas = data.formulas.into_iter().collect();
+        if let Some(saved_path) = data.saved_path.as_deref() {
+            editor
+                .mark_saved(saved_path, &data.sheets)
+                .map_err(|error| error.to_string())?;
+        }
+        editor
+            .save(&destination, &data.sheets)
+            .map_err(|error| error.to_string())
+    })();
+    let message = match &result {
+        Ok(()) => "ok".to_owned(),
+        Err(error) => error.clone(),
+    };
+    let _ = std::fs::write(&result_path, message);
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_xlsx_isolated(
+    origin: &Path,
+    saved_path: Option<&Path>,
+    destination: &Path,
+    sheets: &[SpreadsheetModel],
+    formats: &std::collections::BTreeMap<
+        liteoffice::workbook_edit::CellKey,
+        liteoffice::workbook_edit::CellFormat,
+    >,
+    formulas: &std::collections::BTreeMap<liteoffice::workbook_edit::CellKey, String>,
+) -> Result<(), String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let data_path = std::env::temp_dir().join(format!(
+        "notoffice-xlsx-save-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let result_path = std::env::temp_dir().join(format!(
+        "notoffice-xlsx-save-result-{}-{nonce}.txt",
+        std::process::id()
+    ));
+    let data = IsolatedXlsxSave {
+        origin: origin.to_path_buf(),
+        saved_path: saved_path.map(Path::to_path_buf),
+        sheets: sheets.to_vec(),
+        formats: formats.iter().map(|(key, value)| (*key, *value)).collect(),
+        formulas: formulas.iter().map(|(key, value)| (*key, value.clone())).collect(),
+    };
+    std::fs::write(
+        &data_path,
+        serde_json::to_vec(&data).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--xlsx-save-worker")
+        .arg(destination)
+        .arg(&data_path)
+        .arg(&result_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(60) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = std::fs::remove_file(&data_path);
+                let _ = std::fs::remove_file(&result_path);
+                return Err(format!("XLSX save process failed: {error}"));
+            }
+        }
+    };
+    let message = std::fs::read_to_string(&result_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&data_path);
+    let _ = std::fs::remove_file(&result_path);
+    match status {
+        Some(status) if status.success() => Ok(()),
+        Some(_) => Err(if message.is_empty() {
+            "XLSX save process failed".into()
+        } else {
+            message
+        }),
+        None => Err("XLSX save timed out".into()),
+    }
+}
+
 fn docx_save_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--docx-save-worker") {

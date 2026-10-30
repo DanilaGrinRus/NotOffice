@@ -36,6 +36,7 @@ fn main() -> eframe::Result<()> {
         .or_else(csv_worker_mode)
         .or_else(doc_worker_mode)
         .or_else(docx_save_worker_mode)
+        .or_else(xlsx_save_worker_mode)
     {
         std::process::exit(code);
     }
@@ -3921,13 +3922,70 @@ impl NotOfficeApp {
         let Some(book) = self.spreadsheet.as_mut() else {
             return false;
         };
-        let formulas = book.formulas.clone();
-        let Some(editor) = book.editor.as_mut() else {
+        let Some(editor) = book.editor.as_ref() else {
             return false;
         };
-        editor.formulas = formulas;
-        match editor.save(&path, &book.sheets) {
+        let origin = editor.origin().to_path_buf();
+        let saved_path = editor.saved_path().map(Path::to_path_buf);
+        let sheets = book.sheets.clone();
+        let formats = book.formats.clone();
+        let formulas = book.formulas.clone();
+        let isolated = !parser_isolation_disabled();
+        let result = if isolated {
+            save_xlsx_isolated(
+                &origin,
+                saved_path.as_deref(),
+                &path,
+                &sheets,
+                &formats,
+                &formulas,
+            )
+        } else {
+            let Some(editor) = self
+                .spreadsheet
+                .as_mut()
+                .and_then(|book| book.editor.as_mut())
+            else {
+                return false;
+            };
+            editor.formulas = formulas.clone();
+            editor
+                .save(&path, &sheets)
+                .map_err(|error| error.to_string())
+        };
+        match result {
             Ok(()) => {
+                if isolated {
+                    match open_xlsx_isolated(&path) {
+                        Ok(package) => {
+                            if let Some(book) = self.spreadsheet.as_mut() {
+                                book.sheets = package.sheets;
+                                book.formats = package.formats;
+                                book.formulas = package.formulas;
+                                let mut editor = liteoffice::workbook_edit::WorkbookEditor::new(
+                                    origin,
+                                    &book.sheets,
+                                );
+                                editor.formats = book.formats.clone();
+                                editor.formulas = book.formulas.clone();
+                                if let Err(error) = editor.mark_saved(&path, &book.sheets) {
+                                    self.status = tfm!(
+                                        "Файл сохранён, но состояние редактора не восстановлено: {error}",
+                                        "File was saved, but editor state could not be restored: {error}"
+                                    );
+                                }
+                                book.editor = Some(editor);
+                            }
+                        }
+                        Err(error) => {
+                            self.status = tfm!(
+                                "Файл сохранён, но повторное открытие не удалось: {error}",
+                                "File was saved, but reopening failed: {error}"
+                            );
+                            return true;
+                        }
+                    }
+                }
                 if !self.clear_current_recovery() {
                     self.recovery_session = None;
                     self.recovery_snapshot_model = None;
@@ -3946,7 +4004,11 @@ impl NotOfficeApp {
                 );
                 true
             }
-            Err(liteoffice::docx::DocxError::SourceChanged) => {
+            Err(error)
+                if error.contains("changed on disk")
+                    || error.contains("changed outside")
+                    || error.contains("SourceChanged") =>
+            {
                 self.conflict_destination = Some(path);
                 self.status = tr!(
                     "Книга изменена на диске: запись заблокирована; правки сохранены",
