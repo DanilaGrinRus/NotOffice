@@ -567,6 +567,147 @@ fn pdf_worker_mode() -> Option<i32> {
     Some(if result.is_ok() { 0 } else { 1 })
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize)]
+enum RecoveryPayload {
+    Docx {
+        source: PathBuf,
+        model: liteoffice::docx::DocumentModel,
+        images: Vec<liteoffice::docx::DocxImage>,
+        fallback: bool,
+    },
+    Workbook {
+        sheets: Vec<liteoffice::xlsx::SpreadsheetModel>,
+        formats: Vec<(
+            liteoffice::workbook_edit::CellKey,
+            liteoffice::workbook_edit::CellFormat,
+        )>,
+        fallback: bool,
+    },
+    Text {
+        kind: liteoffice::text_document::TextKind,
+        text: String,
+        fallback: bool,
+    },
+}
+
+fn recovery_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--recovery-restore-worker") {
+        return None;
+    }
+    if args.len() != 4 {
+        return Some(2);
+    }
+    let root = PathBuf::from(&args[1]);
+    let directory = PathBuf::from(&args[2]);
+    let output = PathBuf::from(&args[3]);
+    let result = (|| -> Result<(), String> {
+        let (sessions, _) = liteoffice::recovery::discover(&root).map_err(|error| error.to_string())?;
+        let session = sessions
+            .into_iter()
+            .find(|session| session.directory() == directory)
+            .ok_or_else(|| "recovery session disappeared".to_owned())?;
+        let payload = if session.is_text() {
+            let (document, fallback) = session.restore_text().map_err(|error| error.to_string())?;
+            RecoveryPayload::Text {
+                kind: document.kind,
+                text: document.text,
+                fallback,
+            }
+        } else if session.is_workbook() {
+            let (sheets, formats, fallback) = session.restore_workbook().map_err(|error| error.to_string())?;
+            RecoveryPayload::Workbook {
+                sheets,
+                formats: formats.into_iter().collect(),
+                fallback,
+            }
+        } else {
+            let (package, fallback) = session.restore().map_err(|error| error.to_string())?;
+            RecoveryPayload::Docx {
+                source: package.source_path().to_path_buf(),
+                model: package.model,
+                images: package.images,
+                fallback,
+            }
+        };
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)
+            .map_err(|error| error.to_string())?;
+        serde_json::to_writer(&mut file, &payload).map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
+fn restore_recovery_isolated(
+    root: &Path,
+    directory: &Path,
+) -> Result<(RecoveryPayload, bool), String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let output = std::env::temp_dir().join(format!(
+        "notoffice-recovery-restore-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&output);
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--recovery-restore-worker")
+        .arg(root)
+        .arg(directory)
+        .arg(&output)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = std::fs::remove_file(&output);
+                return Err(format!("Recovery worker failed: {error}"));
+            }
+        }
+    };
+    let bytes = std::fs::read(&output).unwrap_or_default();
+    let _ = std::fs::remove_file(&output);
+    match status {
+        Some(status) if status.success() => {
+            let payload: RecoveryPayload = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("Recovery worker returned invalid data: {error}"))?;
+            let fallback = match &payload {
+                RecoveryPayload::Docx { fallback, .. }
+                | RecoveryPayload::Workbook { fallback, .. }
+                | RecoveryPayload::Text { fallback, .. } => *fallback,
+            };
+            Ok((payload, fallback))
+        }
+        Some(_) => Err("Recovery worker process failed".into()),
+        None => Err("Recovery worker timed out".into()),
+    }
+}
+
 fn xlsx_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--xlsx-parse-worker") {

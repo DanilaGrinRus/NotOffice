@@ -38,6 +38,7 @@ fn main() -> eframe::Result<()> {
         .or_else(docx_save_worker_mode)
         .or_else(xlsx_save_worker_mode)
         .or_else(pdf_worker_mode)
+        .or_else(recovery_worker_mode)
     {
         std::process::exit(code);
     }
@@ -1571,7 +1572,32 @@ impl NotOfficeApp {
         if session.is_workbook() {
             return self.restore_first_workbook_recovery();
         }
-        match session.restore() {
+        let restored = if parser_isolation_disabled() {
+            session.restore().map_err(|error| error.to_string())
+        } else {
+            let Some(root) = self.recovery_root.as_deref() else {
+                self.recovery_notice = tr!(
+                    "Восстановление недоступно: каталог recovery не инициализирован",
+                    "Recovery unavailable: recovery root is not initialized"
+                )
+                .into();
+                return false;
+            };
+            restore_recovery_isolated(root, session.directory()).and_then(|(payload, fallback)| {
+                match payload {
+                    RecoveryPayload::Docx {
+                        source,
+                        model,
+                        images,
+                        ..
+                    } => DocxPackage::from_isolated_model(source, model, images)
+                        .map(|package| (package, fallback))
+                        .map_err(|error| error.to_string()),
+                    _ => Err("Recovery worker returned the wrong document kind".into()),
+                }
+            })
+        };
+        match restored {
             Ok((package, fallback)) => {
                 // Startup choices are modal; no unsaved active document may be
                 // silently replaced. Other candidates remain on disk, unlocked
@@ -1743,7 +1769,35 @@ impl NotOfficeApp {
         }
         let session = &self.recovery_candidates[0];
         let origin = PathBuf::from(&session.origin);
-        let (sheets, formats, fallback) = match session.restore_workbook() {
+        let restored = if parser_isolation_disabled() {
+            session
+                .restore_workbook()
+                .map_err(|error| error.to_string())
+        } else {
+            let Some(root) = self.recovery_root.as_deref() else {
+                self.recovery_notice = tr!(
+                    "Восстановление книги недоступно: каталог recovery не инициализирован",
+                    "Workbook recovery unavailable: recovery root is not initialized"
+                )
+                .into();
+                return false;
+            };
+            restore_recovery_isolated(root, session.directory()).and_then(|(payload, fallback)| {
+                match payload {
+                    RecoveryPayload::Workbook {
+                        sheets, formats, ..
+                    } => Ok((
+                        sheets,
+                        formats
+                            .into_iter()
+                            .collect::<std::collections::BTreeMap<_, _>>(),
+                        fallback,
+                    )),
+                    _ => Err("Recovery worker returned the wrong document kind".into()),
+                }
+            })
+        };
+        let (sheets, formats, fallback) = match restored {
             Ok(value) => value,
             Err(error) => {
                 self.recovery_notice = tfm!(
@@ -1884,7 +1938,32 @@ impl NotOfficeApp {
         }
         let session = &self.recovery_candidates[0];
         let origin = PathBuf::from(&session.origin);
-        let (document, fallback) = match session.restore_text() {
+        let recovered_text = if parser_isolation_disabled() {
+            session.restore_text().map_err(|error| error.to_string())
+        } else {
+            let Some(root) = self.recovery_root.as_deref() else {
+                self.recovery_notice = tr!(
+                    "Восстановление текста недоступно: каталог recovery не инициализирован",
+                    "Text recovery unavailable: recovery root is not initialized"
+                )
+                .into();
+                return false;
+            };
+            restore_recovery_isolated(root, session.directory()).and_then(|(payload, fallback)| {
+                match payload {
+                    RecoveryPayload::Text { kind, text, .. } => Ok((
+                        liteoffice::text_document::TextDocument::recovered_copy(
+                            kind,
+                            text,
+                            Some(origin.clone()),
+                        ),
+                        fallback,
+                    )),
+                    _ => Err("Recovery worker returned the wrong document kind".into()),
+                }
+            })
+        };
+        let (document, fallback) = match recovered_text {
             Ok(value) => value,
             Err(error) => {
                 self.recovery_notice = tfm!(

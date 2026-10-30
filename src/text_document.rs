@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const LIMIT: usize = 8 * 1024 * 1024;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TextKind {
     Txt,
     Markdown,
@@ -60,7 +60,7 @@ impl Default for TextDocument {
 impl TextDocument {
     /// Recovery restores the passive text model directly, never reparses its
     /// contents as RTF/Markdown actions and never adopts the original path.
-    pub(crate) fn recovered_copy(kind: TextKind, text: String, origin: Option<PathBuf>) -> Self {
+    pub fn recovered_copy(kind: TextKind, text: String, origin: Option<PathBuf>) -> Self {
         Self {
             text,
             kind,
