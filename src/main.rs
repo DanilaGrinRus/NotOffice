@@ -3767,7 +3767,10 @@ impl NotOfficeApp {
             &book.sheets,
         ));
         book.editor.as_mut().unwrap().formats = book.formats.clone();
-        book.editor.as_mut().unwrap().formulas = book.formulas.clone();
+        book.editor
+            .as_mut()
+            .unwrap()
+            .set_initial_formulas(book.formulas.clone());
         book.selected_cell = Some((0, 0));
         book.focus_pending = true;
         self.status = tr!("Копия со значениями: текст и поддерживаемое форматирование; требуется «Сохранить как XLSX»", "Editable values copy: literal text and supported font formatting; Save As XLSX required").into();

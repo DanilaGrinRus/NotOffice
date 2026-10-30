@@ -92,8 +92,100 @@ pub fn format_number(value: f64, decimals: Option<u8>) -> String {
     }
 }
 
+pub fn shift_references(
+    expression: &str,
+    min_row: usize,
+    row_delta: isize,
+    min_column: usize,
+    column_delta: isize,
+) -> String {
+    let bytes = expression.as_bytes();
+    let mut output = String::with_capacity(expression.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let start = index;
+        let mut cursor = index;
+        let absolute_column = bytes.get(cursor) == Some(&b'$');
+        if absolute_column {
+            cursor += 1;
+        }
+        let letters_start = cursor;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_alphabetic) {
+            cursor += 1;
+        }
+        if cursor == letters_start {
+            output.push(bytes[index] as char);
+            index += 1;
+            continue;
+        }
+        let letters = &expression[letters_start..cursor];
+        let absolute_row = bytes.get(cursor) == Some(&b'$');
+        if absolute_row {
+            cursor += 1;
+        }
+        let digits_start = cursor;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+        }
+        if cursor == digits_start {
+            output.push(bytes[index] as char);
+            index += 1;
+            continue;
+        }
+        let row = expression[digits_start..cursor].parse::<usize>().ok();
+        let column = column_index(letters);
+        if let (Some(mut row), Some(mut column)) = (row, column) {
+            if row >= min_row {
+                row = (row as isize + row_delta).max(1) as usize;
+            }
+            if column >= min_column {
+                column = (column as isize + column_delta).max(1) as usize;
+            }
+            output.push_str(&expression[start..letters_start]);
+            output.push_str(&column_letters(column));
+            if absolute_row {
+                output.push('$');
+            }
+            output.push_str(&row.to_string());
+            index = cursor;
+            continue;
+        }
+        output.push(bytes[index] as char);
+        index += 1;
+    }
+    output
+}
+
+fn column_index(letters: &str) -> Option<usize> {
+    let mut value = 0usize;
+    for letter in letters.bytes() {
+        if !letter.is_ascii_alphabetic() {
+            return None;
+        }
+        value = value.checked_mul(26)? + (letter.to_ascii_uppercase() - b'A' + 1) as usize;
+    }
+    (value > 0 && value <= 16_384).then_some(value)
+}
+
+fn column_letters(mut column: usize) -> String {
+    column = column.min(16_384);
+    let mut output = String::new();
+    while column > 0 {
+        let remainder = (column - 1) % 26;
+        output.insert(0, (b'A' + remainder as u8) as char);
+        column = (column - 1) / 26;
+    }
+    output
+}
+
 pub fn is_simple_formula(expression: &str) -> bool {
-    evaluate(expression, |_| Some("0".into())).is_ok()
+    // Syntax validation must not depend on the *values* of referenced cells.
+    // A non-zero placeholder keeps ordinary formulas like =10/A1 valid;
+    // division by zero is a runtime condition, not a syntax error.
+    match evaluate(expression, |_| Some("1".into())) {
+        Ok(_) | Err(FormulaError::DivideByZero) => true,
+        Err(_) => false,
+    }
 }
 
 pub fn evaluate(
@@ -356,5 +448,18 @@ mod tests {
         );
         assert_eq!(format_number(0.8, None), "0.8");
         assert_eq!(format_number(0.8, Some(0)), "1");
+    }
+    #[test]
+    fn simple_formula_syntax_is_not_value_dependent() {
+        assert!(is_simple_formula("=10/A1"));
+        assert!(is_simple_formula("=1/0"));
+        assert!(!is_simple_formula("=WEBSERVICE(\"x\")"));
+    }
+
+    #[test]
+    fn inserting_row_shifts_formula_references() {
+        assert_eq!(shift_references("=A2", 2, 1, 0, 0), "=A3");
+        assert_eq!(shift_references("=$B$2+C1", 2, 1, 0, 0), "=$B$3+C1");
+        assert_eq!(shift_references("=A1", 1, 1, 0, 0), "=A2");
     }
 }

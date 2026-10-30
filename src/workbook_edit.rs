@@ -35,6 +35,7 @@ pub struct WorkbookEditor {
     fingerprint: Option<SourceFingerprint>,
     baseline: Vec<SpreadsheetModel>,
     saved_formats: BTreeMap<CellKey, CellFormat>,
+    saved_formulas: BTreeMap<CellKey, String>,
     pub formats: BTreeMap<CellKey, CellFormat>,
     pub formulas: BTreeMap<CellKey, String>,
 }
@@ -47,6 +48,7 @@ impl WorkbookEditor {
             fingerprint: None,
             baseline: sheets.to_vec(),
             saved_formats: BTreeMap::new(),
+            saved_formulas: BTreeMap::new(),
             formats: BTreeMap::new(),
             formulas: BTreeMap::new(),
         }
@@ -54,8 +56,15 @@ impl WorkbookEditor {
     pub fn saved_path(&self) -> Option<&Path> {
         self.saved_path.as_deref()
     }
+    pub fn set_initial_formulas(&mut self, formulas: BTreeMap<CellKey, String>) {
+        self.formulas = formulas.clone();
+        self.saved_formulas = formulas;
+    }
     pub fn is_dirty(&self, sheets: &[SpreadsheetModel]) -> bool {
-        self.saved_path.is_none() || self.baseline != sheets || self.saved_formats != self.formats
+        self.saved_path.is_none()
+            || self.baseline != sheets
+            || self.saved_formats != self.formats
+            || self.saved_formulas != self.formulas
     }
     pub fn save(&mut self, path: &Path, sheets: &[SpreadsheetModel]) -> Result<(), DocxError> {
         if !path
@@ -143,6 +152,7 @@ impl WorkbookEditor {
         self.saved_path = Some(path.to_path_buf());
         self.baseline = sheets.to_vec();
         self.saved_formats = self.formats.clone();
+        self.saved_formulas = self.formulas.clone();
         Ok(())
     }
 }
@@ -613,6 +623,9 @@ mod tests {
         editor.save(&output, &data).unwrap();
         let reopened = XlsxPackage::open(&output).unwrap();
         assert_eq!(reopened.formulas[&(0, 0, 0)], "=1+2");
+        assert!(!editor.is_dirty(&data));
+        editor.formulas.insert((0, 0, 0), "=2+1".into());
+        assert!(editor.is_dirty(&data));
         assert_eq!(reopened.formats[&(0, 0, 0)].fill, Some([255, 235, 150]));
     }
 }

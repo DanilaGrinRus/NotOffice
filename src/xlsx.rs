@@ -209,6 +209,11 @@ fn attribute(event: &BytesStart<'_>, name: &[u8]) -> Option<String> {
 }
 
 fn parse_rgb(value: &str) -> Option<[u8; 3]> {
+    // XML attributes are untrusted. Reject non-ASCII before any byte slicing:
+    // slicing a UTF-8 string at 2 bytes inside a multibyte character panics.
+    if !value.is_ascii() {
+        return None;
+    }
     let hex = value.strip_prefix('#').unwrap_or(value);
     let hex = if hex.len() == 8 { &hex[2..] } else { hex };
     if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -721,5 +726,10 @@ mod tests {
         assert_eq!(package.sheets.len(), 2);
         assert_eq!(package.sheets[1].sheet_name, "Notes");
         assert_eq!(package.sheets[1].cell_value(0, 0), "Second sheet");
+    }
+    #[test]
+    fn invalid_unicode_color_is_ignored_without_panicking() {
+        assert_eq!(parse_rgb("€12345"), None);
+        assert_eq!(parse_rgb("FFFFEB96"), Some([255, 235, 150]));
     }
 }

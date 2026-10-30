@@ -93,6 +93,9 @@ impl SpreadsheetDocument {
             return;
         }
         self.formulas.remove(&(self.selected_sheet, row, column));
+        if let Some(editor) = self.editor.as_mut() {
+            editor.formulas.remove(&(self.selected_sheet, row, column));
+        }
         if let Some(sheet) = self.sheets.get_mut(self.selected_sheet) {
             if let Some(cell) = sheet
                 .cells
@@ -189,6 +192,12 @@ impl SpreadsheetDocument {
                     (self.selected_sheet, row, column),
                     expression.trim().to_owned(),
                 );
+                if let Some(editor) = self.editor.as_mut() {
+                    editor.formulas.insert(
+                        (self.selected_sheet, row, column),
+                        expression.trim().to_owned(),
+                    );
+                }
                 self.formula_input = expression.trim().to_owned();
                 self.formula_message = None;
                 true
@@ -503,6 +512,14 @@ impl SpreadsheetDocument {
             moved.insert((sheet, formula_row, column), formula);
         }
         self.formulas = moved;
+        for ((sheet, _, _), formula) in self.formulas.iter_mut() {
+            if *sheet == selected_sheet {
+                *formula = crate::table_formula::shift_references(formula, row + 1, 1, 0, 0);
+            }
+        }
+        if let Some(editor) = self.editor.as_mut() {
+            editor.formulas = self.formulas.clone();
+        }
         let mut moved_formats = std::collections::BTreeMap::new();
         for (key, format) in std::mem::take(&mut self.formats) {
             let (sheet, format_row, column) = key;
@@ -560,6 +577,14 @@ impl SpreadsheetDocument {
             moved.insert((sheet, formula_row, formula_column), formula);
         }
         self.formulas = moved;
+        for ((sheet, _, _), formula) in self.formulas.iter_mut() {
+            if *sheet == selected_sheet {
+                *formula = crate::table_formula::shift_references(formula, 0, 0, column + 1, 1);
+            }
+        }
+        if let Some(editor) = self.editor.as_mut() {
+            editor.formulas = self.formulas.clone();
+        }
         let mut moved_formats = std::collections::BTreeMap::new();
         for (key, format) in std::mem::take(&mut self.formats) {
             let (sheet, format_row, format_column) = key;
