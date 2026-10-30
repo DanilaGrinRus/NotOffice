@@ -715,6 +715,133 @@ struct IsolatedText {
     text: String,
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IsolatedTextSave {
+    kind: liteoffice::text_document::TextKind,
+    text: String,
+    source: Option<PathBuf>,
+}
+
+fn text_save_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--text-save-worker") {
+        return None;
+    }
+    if args.len() != 4 {
+        return Some(2);
+    }
+    let destination = PathBuf::from(&args[1]);
+    let data_path = PathBuf::from(&args[2]);
+    let result_path = PathBuf::from(&args[3]);
+    let result = (|| -> Result<(), String> {
+        let data: IsolatedTextSave = serde_json::from_slice(
+            &std::fs::read(&data_path).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let mut document = match data.source.as_deref() {
+            Some(source) => liteoffice::text_document::TextDocument::from_isolated(
+                data.kind,
+                data.text,
+                source,
+            )
+            .map_err(|error| error.to_string())?,
+            None => liteoffice::text_document::TextDocument::recovered_copy(
+                data.kind,
+                data.text,
+                None,
+            ),
+        };
+        document
+            .save(&destination)
+            .map_err(|error| error.to_string())
+    })();
+    let message = match &result {
+        Ok(()) => "ok".to_owned(),
+        Err(error) => error.clone(),
+    };
+    let _ = std::fs::write(&result_path, message);
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
+fn save_text_isolated(
+    path: &Path,
+    kind: liteoffice::text_document::TextKind,
+    text: &str,
+    source: Option<&Path>,
+) -> Result<(), String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let data_path = std::env::temp_dir().join(format!(
+        "notoffice-text-save-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let result_path = std::env::temp_dir().join(format!(
+        "notoffice-text-save-result-{}-{nonce}.txt",
+        std::process::id()
+    ));
+    std::fs::write(
+        &data_path,
+        serde_json::to_vec(&IsolatedTextSave {
+            kind,
+            text: text.to_owned(),
+            source: source.map(Path::to_path_buf),
+        })
+        .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--text-save-worker")
+        .arg(path)
+        .arg(&data_path)
+        .arg(&result_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = std::fs::remove_file(&data_path);
+                let _ = std::fs::remove_file(&result_path);
+                return Err(format!("Text save process failed: {error}"));
+            }
+        }
+    };
+    let message = std::fs::read_to_string(&result_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&data_path);
+    let _ = std::fs::remove_file(&result_path);
+    match status {
+        Some(status) if status.success() => Ok(()),
+        Some(_) => Err(if message.is_empty() {
+            "Text save process failed".into()
+        } else {
+            message
+        }),
+        None => Err("Text save timed out".into()),
+    }
+}
+
 fn text_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--text-parse-worker") {

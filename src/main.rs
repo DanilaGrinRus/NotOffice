@@ -40,6 +40,7 @@ fn main() -> eframe::Result<()> {
         .or_else(pdf_worker_mode)
         .or_else(recovery_worker_mode)
         .or_else(text_worker_mode)
+        .or_else(text_save_worker_mode)
     {
         std::process::exit(code);
     }
@@ -4122,11 +4123,38 @@ impl NotOfficeApp {
             .into();
             return false;
         }
-        let Some(document) = self.text.as_mut() else {
+        let Some(document) = self.text.as_ref() else {
             return false;
         };
-        match document.save(&path) {
+        let kind = document.kind;
+        let text = document.text.clone();
+        let source = document.path().map(Path::to_path_buf);
+        let isolated = !parser_isolation_disabled();
+        let result = if isolated {
+            save_text_isolated(&path, kind, &text, source.as_deref())
+        } else {
+            self.text
+                .as_mut()
+                .unwrap()
+                .save(&path)
+                .map_err(|error| error.to_string())
+        };
+        match result {
             Ok(()) => {
+                if isolated {
+                    match open_text_isolated(&path) {
+                        Ok(document) => {
+                            self.text = Some(document);
+                        }
+                        Err(error) => {
+                            self.status = tfm!(
+                                "Файл сохранён, но повторное открытие не удалось: {error}",
+                                "File was saved, but reopening failed: {error}"
+                            );
+                            return true;
+                        }
+                    }
+                }
                 if !self.clear_current_recovery() {
                     self.recovery_session = None;
                     self.recovery_snapshot_model = None;
@@ -4145,7 +4173,11 @@ impl NotOfficeApp {
                 );
                 true
             }
-            Err(liteoffice::docx::DocxError::SourceChanged) => {
+            Err(error)
+                if error.contains("changed on disk")
+                    || error.contains("changed outside")
+                    || error.contains("SourceChanged") =>
+            {
                 self.conflict_destination = Some(path);
                 self.status = tr!(
                     "Текст изменён на диске: запись заблокирована; правки сохранены",

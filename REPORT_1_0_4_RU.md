@@ -210,3 +210,5 @@
 - Recovery: восстановление DOCX/XLSX/текста выполняется дочерним процессом `--recovery-restore-worker`; родитель получает сериализованную модель/текст.
 
 - TXT/MD/RTF открываются worker-процессом `--text-parse-worker`; recovery текста уже изолирован.
+
+- Сохранение TXT/MD/RTF вынесено в `--text-save-worker`.
