@@ -743,6 +743,13 @@ impl SpreadsheetDocument {
             }
 
             let formula_id = egui::Id::new("workbook-formula-input");
+            let formula_focused = ui.memory(|memory| memory.has_focus(formula_id));
+            if !formula_focused
+                && !self.formulas.contains_key(&key)
+                && !self.formula_input.starts_with('=')
+            {
+                self.formula_input.clear();
+            }
             let formula_enter_before = ui.memory(|memory| memory.has_focus(formula_id))
                 && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
             let formula = ui.add(
@@ -993,6 +1000,17 @@ impl SpreadsheetDocument {
             }
         }
         self.range_drag_start = edit.range_drag_start;
+        let range_has_more_than_one_cell =
+            match (self.selection.range_start, self.selection.range_end) {
+                (Some(start), Some(end)) => start != end,
+                _ => false,
+            };
+        if range_has_more_than_one_cell {
+            if let Some(focused) = ui.memory(|memory| memory.focused()) {
+                ui.memory_mut(|memory| memory.surrender_focus(focused));
+            }
+            self.focus_pending = false;
+        }
         if self.selection.row.is_some() || self.selection.column.is_some() {
             self.selected_cell = None;
             self.selection.range_start = None;
