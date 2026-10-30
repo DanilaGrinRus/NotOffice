@@ -668,8 +668,15 @@ impl SpreadsheetDocument {
         }
         let (row, column) = self.selected_cell.unwrap_or((0, 0));
         let mut changed = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(format!("{}{}", column_name(column), row + 1));
+
+        // Editing row: compact; no repeated labels, no full-width controls.
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{}{}", column_name(column), row + 1))
+                    .monospace()
+                    .strong(),
+            )
+            .on_hover_text(tr!("Активная ячейка", "Active cell"));
             let key = (self.selected_sheet, row, column);
             let mut format = self
                 .editor
@@ -679,12 +686,16 @@ impl SpreadsheetDocument {
                 .get(&key)
                 .copied()
                 .unwrap_or_default();
-            ui.label(tr!("Кегль, пт", "Font pt"));
             let size_changed = ui
-                .add(egui::DragValue::new(&mut format.size).range(6..=72))
+                .add_sized(
+                    [44.0, 20.0],
+                    egui::DragValue::new(&mut format.size).range(6..=72),
+                )
+                .on_hover_text(tr!("Кегль, пт", "Font size, pt"))
                 .changed();
             let bold_changed = ui
-                .checkbox(&mut format.bold, tr!("Жирный", "Bold"))
+                .add(egui::Checkbox::without_text(&mut format.bold))
+                .on_hover_text(tr!("Жирный", "Bold"))
                 .changed();
             if size_changed || bold_changed {
                 let current = self
@@ -697,8 +708,8 @@ impl SpreadsheetDocument {
                 self.formats.insert(key, format);
                 changed = true;
             }
+
             if let Some((selected_row, selected_column)) = self.selected_cell {
-                ui.label(tr!("Значение", "Value"));
                 let value_id = egui::Id::new((
                     "workbook-value-input",
                     self.selected_sheet,
@@ -708,7 +719,8 @@ impl SpreadsheetDocument {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.value_input)
                         .id(value_id)
-                        .desired_width(360.0)
+                        .desired_width(300.0)
+                        .hint_text(tr!("Значение ячейки", "Cell value"))
                         .char_limit(32767),
                 );
                 self.value_input_id = Some(response.id);
@@ -716,39 +728,27 @@ impl SpreadsheetDocument {
                     let mut state = egui::text_edit::TextEditState::load(ui.ctx(), response.id)
                         .unwrap_or_default();
                     let end = self.value_input.chars().count();
-                    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-                        egui::text::CCursor::new(0),
-                        egui::text::CCursor::new(end),
-                    )));
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(end),
+                        )));
                     state.store(ui.ctx(), response.id);
                 }
                 if response.changed() {
-                    self.set_cell_text(
-                        selected_row,
-                        selected_column,
-                        self.value_input.clone(),
-                    );
+                    self.set_cell_text(selected_row, selected_column, self.value_input.clone());
                     changed = true;
                 }
             }
-            ui.allocate_ui_with_layout(
-                egui::vec2(58.0, 24.0),
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    ui.label(
-                        egui::RichText::new(tr!("Формула", "Formula"))
-                            .size(11.0)
-                            .color(egui::Color32::from_gray(90)),
-                    );
-                },
-            );
+
             let formula_id = egui::Id::new("workbook-formula-input");
             let formula_enter_before = ui.memory(|memory| memory.has_focus(formula_id))
                 && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
             let formula = ui.add(
                 egui::TextEdit::singleline(&mut self.formula_input)
                     .id_source(formula_id)
-                    .desired_width(150.0)
+                    .desired_width(190.0)
                     .hint_text("=A1+B1"),
             );
             let formula = if let Some(message) = self.formula_message.clone() {
@@ -760,28 +760,27 @@ impl SpreadsheetDocument {
             if formula.gained_focus() {
                 formula.request_focus();
             }
-            let formula_enter_after = formula.lost_focus()
-                && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            let formula_enter_after =
+                formula.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
             if formula_enter_before || formula_enter_after {
                 changed |= self.apply_formula();
             }
             if ui
-                .button("=")
+                .small_button("=")
                 .on_hover_text(tr!(
-                    "Вычислить +, −, ×, ÷ и ссылки на ячейки; обычный текст с «=» не меняется. Enter в поле формулы вычисляет.",
-                    "Evaluate +, −, ×, ÷ and cell references; ordinary '=' text is unchanged"
+                    "Вычислить формулу; Enter в поле формулы тоже вычисляет",
+                    "Evaluate formula; Enter in the formula field also evaluates"
                 ))
                 .clicked()
             {
                 changed |= self.apply_formula();
             }
-            ui.label(tr!("Знаков после запятой", "Decimal places"));
             egui::ComboBox::from_id_source("workbook-decimals")
                 .selected_text(match self.decimal_places {
                     Some(value) => value.to_string(),
                     None => tr!("Авто", "Auto").to_owned(),
                 })
-                .width(72.0)
+                .width(58.0)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.decimal_places, None, tr!("Авто", "Auto"));
                     for value in 0..=6_u8 {
@@ -791,23 +790,134 @@ impl SpreadsheetDocument {
                             value.to_string(),
                         );
                     }
-                });
-            ui.checkbox(
-                &mut self.freeze_top_row,
-                tr!("Закрепить верхнюю строку", "Freeze top row"),
-            )
-            .on_hover_text(tr!(
-                "Первая строка остаётся видимой при вертикальной прокрутке",
-                "Keep the first row visible while scrolling vertically"
-            ));
-            ui.checkbox(
-                &mut self.freeze_left_column,
-                tr!("Закрепить левый столбец", "Freeze left column"),
-            )
-            .on_hover_text(tr!(
-                "Первый столбец остаётся видимым при горизонтальной прокрутке",
-                "Keep the first column visible while scrolling horizontally"
-            ));
+                })
+                .response
+                .on_hover_text(tr!("Знаков после запятой", "Decimal places"));
+        });
+
+        // Actions row: grouped menus keep the toolbar one line.
+        ui.horizontal(|ui| {
+            ui.menu_button(tr!("Строка", "Row"), |ui| {
+                if ui.button(tr!("Добавить выше", "Insert above")).clicked() {
+                    changed |= self.insert_row_after_selected();
+                    ui.close_menu();
+                }
+                if ui
+                    .button(tr!("Копировать", "Copy"))
+                    .on_hover_text(tr!("Скопировать строку", "Copy row"))
+                    .clicked()
+                {
+                    if let Some(text) = self.copy_row(self.selection.row.unwrap_or(row)) {
+                        ui.ctx().copy_text(text);
+                    }
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        self.table_clipboard.is_some(),
+                        egui::Button::new(tr!("Вставить", "Paste")),
+                    )
+                    .clicked()
+                {
+                    changed |= self.paste_selected_row_or_column();
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button(tr!("Столбец", "Column"), |ui| {
+                if ui.button(tr!("Добавить левее", "Insert left")).clicked() {
+                    changed |= self.insert_column_after_selected();
+                    ui.close_menu();
+                }
+                if ui
+                    .button(tr!("Копировать", "Copy"))
+                    .on_hover_text(tr!("Скопировать столбец", "Copy column"))
+                    .clicked()
+                {
+                    if let Some(text) = self.copy_column(self.selection.column.unwrap_or(column)) {
+                        ui.ctx().copy_text(text);
+                    }
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        self.table_clipboard.is_some(),
+                        egui::Button::new(tr!("Вставить", "Paste")),
+                    )
+                    .clicked()
+                {
+                    changed |= self.paste_selected_row_or_column();
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button(tr!("Буфер", "Clipboard"), |ui| {
+                if ui.button(tr!("Копировать строку", "Copy row")).clicked() {
+                    if let Some(text) = self.copy_row(self.selection.row.unwrap_or(row)) {
+                        ui.ctx().copy_text(text);
+                    }
+                    ui.close_menu();
+                }
+                if ui
+                    .button(tr!("Копировать столбец", "Copy column"))
+                    .clicked()
+                {
+                    if let Some(text) = self.copy_column(self.selection.column.unwrap_or(column)) {
+                        ui.ctx().copy_text(text);
+                    }
+                    ui.close_menu();
+                }
+                if ui
+                    .button(tr!("Копировать диапазон", "Copy range"))
+                    .clicked()
+                {
+                    if let Some(text) = self.copy_selected_range() {
+                        ui.ctx().copy_text(text);
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        self.table_clipboard.is_some(),
+                        egui::Button::new(tr!("Вставить", "Paste")),
+                    )
+                    .clicked()
+                {
+                    changed |= self.paste_selected_row_or_column();
+                    ui.close_menu();
+                }
+                if ui.button(tr!("Вставить диапазон", "Paste range")).clicked() {
+                    self.range_paste_requested = true;
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button(tr!("Цвет", "Colour"), |ui| {
+                for (label, color) in [
+                    (tr!("Жёлтый", "Yellow"), [255, 235, 150]),
+                    (tr!("Зелёный", "Green"), [190, 235, 190]),
+                    (tr!("Голубой", "Blue"), [190, 225, 245]),
+                    (tr!("Розовый", "Pink"), [248, 200, 210]),
+                ] {
+                    if ui.button(label).clicked() {
+                        changed |= self.set_cell_fill(row, column, Some(color));
+                        ui.close_menu();
+                    }
+                }
+                if ui.button(tr!("Без цвета", "No colour")).clicked() {
+                    changed |= self.set_cell_fill(row, column, None);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button(tr!("Вид", "View"), |ui| {
+                ui.checkbox(
+                    &mut self.freeze_top_row,
+                    tr!("Закрепить верхнюю строку", "Freeze top row"),
+                );
+                ui.checkbox(
+                    &mut self.freeze_left_column,
+                    tr!("Закрепить левый столбец", "Freeze left column"),
+                );
+            });
+            ui.separator();
             if ui
                 .add(egui::Button::new("◀"))
                 .on_hover_text(tr!("Сдвинуть таблицу влево", "Move table left"))
@@ -821,81 +931,6 @@ impl SpreadsheetDocument {
                 .clicked()
             {
                 self.horizontal_offset += 160.0;
-            }
-            if ui
-                .button(tr!("Копировать строку", "Copy row"))
-                .on_hover_text(tr!(
-                    "Скопировать строку в буфер",
-                    "Copy the row to the clipboard"
-                ))
-                .clicked()
-            {
-                if let Some(text) = self.copy_row(self.selection.row.unwrap_or(row)) {
-                    ui.ctx().copy_text(text);
-                }
-            }
-            if ui
-                .button(tr!("Копировать столбец", "Copy column"))
-                .on_hover_text(tr!("Скопировать столбец в буфер", "Copy the column to the clipboard"))
-                .clicked()
-            {
-                if let Some(text) = self.copy_column(self.selection.column.unwrap_or(column)) {
-                    ui.ctx().copy_text(text);
-                }
-            }
-            if ui
-                .add_enabled(
-                    self.table_clipboard.is_some(),
-                    egui::Button::new(tr!("Вставить строку/столбец", "Paste row/column")),
-                )
-                .on_hover_text(tr!(
-                    "Вставить скопированную строку или столбец в текущую позицию",
-                    "Paste the copied row or column at the current position"
-                ))
-                .clicked()
-            {
-                changed |= self.paste_selected_row_or_column();
-            }
-            if ui
-                .button(tr!("Добавить строку", "Insert row"))
-                .on_hover_text(tr!("Вставить пустую строку выше выбранной", "Insert an empty row above the selected one"))
-                .clicked()
-            {
-                changed |= self.insert_row_after_selected();
-            }
-            if ui
-                .button(tr!("Добавить столбец", "Insert column"))
-                .on_hover_text(tr!("Вставить пустой столбец левее выбранного", "Insert an empty column before the selected one"))
-                .clicked()
-            {
-                changed |= self.insert_column_after_selected();
-            }
-            egui::ComboBox::from_id_source("cell-highlight")
-                .selected_text(tr!("Цвет ячейки", "Cell colour"))
-                .show_ui(ui, |ui| {
-                    for (label, color) in [
-                        (tr!("Жёлтый", "Yellow"), [255, 235, 150]),
-                        (tr!("Зелёный", "Green"), [190, 235, 190]),
-                        (tr!("Голубой", "Blue"), [190, 225, 245]),
-                        (tr!("Розовый", "Pink"), [248, 200, 210]),
-                    ] {
-                        if ui.button(label).clicked() {
-                            changed |= self.set_cell_fill(row, column, Some(color));
-                        }
-                    }
-                    if ui.button(tr!("Без цвета", "No colour")).clicked() {
-                        changed |= self.set_cell_fill(row, column, None);
-                    }
-                });
-            if ui
-                .button(tr!("Вставить диапазон", "Paste range"))
-                .on_hover_text(tr!(
-                    "Вставить текст из буфера как значения, начиная с активной ячейки; формулы не выполняются. Обычная вставка внутри редактора ячейки не перехватывается.",
-                    "Paste clipboard text as values starting at the active cell; formulas are not executed. Normal paste inside the cell editor is not intercepted."
-                ))
-                .clicked()
-            {
-                self.range_paste_requested = true;
             }
         });
         changed
