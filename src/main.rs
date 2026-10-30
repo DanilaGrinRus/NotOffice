@@ -1086,6 +1086,14 @@ impl NotOfficeApp {
         if self.decision_pending() {
             return;
         }
+        let focused = ctx.memory(|memory| memory.focused());
+        let cell_editor_focused = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| focused.is_some() && book.input_id == focused);
+        if ctx.wants_keyboard_input() && !cell_editor_focused {
+            return;
+        }
         let (has_row_or_column, has_range) = self
             .spreadsheet
             .as_ref()
@@ -1168,25 +1176,33 @@ impl NotOfficeApp {
             return;
         }
         if let Some(text) = pasted_text {
-            if self
-                .spreadsheet
-                .as_ref()
-                .is_some_and(|book| book.table_clipboard.is_none())
-            {
-                let rows = text
-                    .lines()
-                    .map(|line| line.split('\t').map(str::to_owned).collect::<Vec<_>>())
-                    .collect::<Vec<_>>();
-                if !rows.is_empty() && rows[0].len() == 1 && rows.len() > 1 {
-                    let values = rows.iter().flatten().cloned().collect::<Vec<_>>();
-                    if let Some(book) = self.spreadsheet.as_mut() {
-                        book.table_clipboard = Some(TableClipboard::Column(values));
+            // Event::Paste carries the *current* OS clipboard. It must replace
+            // an older internal row/range buffer, otherwise copying in another
+            // application would paste stale NotOffice data.
+            if let Some(book) = self.spreadsheet.as_mut() {
+                let lines = text.lines().collect::<Vec<_>>();
+                let table = if has_row_or_column {
+                    if book.selection.row.is_some() {
+                        TableClipboard::Row(
+                            lines
+                                .first()
+                                .map(|line| line.split('\t').map(str::to_owned).collect())
+                                .unwrap_or_default(),
+                        )
+                    } else {
+                        TableClipboard::Column(
+                            lines.iter().map(|line| (*line).to_owned()).collect(),
+                        )
                     }
-                } else if !rows.is_empty() {
-                    if let Some(book) = self.spreadsheet.as_mut() {
-                        book.table_clipboard = Some(TableClipboard::Range(rows));
-                    }
-                }
+                } else {
+                    TableClipboard::Range(
+                        lines
+                            .iter()
+                            .map(|line| line.split('\t').map(str::to_owned).collect())
+                            .collect(),
+                    )
+                };
+                book.table_clipboard = Some(table);
             }
         }
         let before = self.workbook_snapshot();
