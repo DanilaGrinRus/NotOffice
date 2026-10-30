@@ -394,6 +394,7 @@ fn encode_powershell_command(source: &str) -> String {
 pub(crate) struct PrintJobFiles {
     directory: std::path::PathBuf,
     assets: Vec<std::path::PathBuf>,
+    helper_source: String,
 }
 
 #[cfg(windows)]
@@ -409,17 +410,16 @@ impl PrintJobFiles {
         let files = Self {
             directory,
             assets: Vec::new(),
+            helper_source: helper.to_owned(),
         };
-        for (name, data) in [("job.txt", manifest), ("helper.ps1", helper)] {
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(files.directory.join(name))
-                .map_err(|error| error.to_string())?;
-            file.write_all(data.as_bytes())
-                .map_err(|error| error.to_string())?;
-            file.sync_all().map_err(|error| error.to_string())?;
-        }
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(files.directory.join("job.txt"))
+            .map_err(|error| error.to_string())?;
+        file.write_all(manifest.as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
         Ok(files)
     }
 
@@ -447,7 +447,7 @@ impl PrintJobFiles {
         // Keep the Windows command line independent of helper/content length.
         // As before, execute trusted embedded helper code in memory. Document
         // paths/content are passed as environment data, never script syntax.
-        const BOOTSTRAP: &str = "& ([ScriptBlock]::Create([IO.File]::ReadAllText($env:LITEOFFICE_PRINT_HELPER,[Text.Encoding]::UTF8))) -PdfTestOutput $env:LITEOFFICE_PDF_TEST_OUTPUT";
+        const BOOTSTRAP: &str = "& ([ScriptBlock]::Create($env:LITEOFFICE_PRINT_HELPER_SOURCE)) -PdfTestOutput $env:LITEOFFICE_PDF_TEST_OUTPUT";
         let mut command = std::process::Command::new("powershell.exe");
         command
             .args([
@@ -458,7 +458,7 @@ impl PrintJobFiles {
                 &encode_powershell_command(BOOTSTRAP),
             ])
             .env("LITEOFFICE_PRINT_INPUT", self.directory.join("job.txt"))
-            .env("LITEOFFICE_PRINT_HELPER", self.directory.join("helper.ps1"))
+            .env("LITEOFFICE_PRINT_HELPER_SOURCE", &self.helper_source)
             .env(
                 "LITEOFFICE_PDF_TEST_OUTPUT",
                 pdf_test_output
@@ -476,10 +476,8 @@ impl Drop for PrintJobFiles {
         for path in &self.assets {
             let _ = std::fs::remove_file(path);
         }
-        // Remove only the two files and directory exclusively created by us.
-        for name in ["job.txt", "helper.ps1"] {
-            let _ = std::fs::remove_file(self.directory.join(name));
-        }
+        // Remove only the manifest and directory exclusively created by us.
+        let _ = std::fs::remove_file(self.directory.join("job.txt"));
         let _ = std::fs::remove_dir(&self.directory);
     }
 }

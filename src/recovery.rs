@@ -653,6 +653,33 @@ fn session_directories(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(directories)
 }
 
+fn remove_closed_session_files(directory: &Path) -> io::Result<()> {
+    if !plain_directory(directory)? {
+        return Err(io::Error::other("session is a reparse point"));
+    }
+    let mut files = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let known = name == "lease"
+            || name == "origin.txt"
+            || snapshot_kind(&name).is_some()
+            || (name.starts_with("pending-") && name.ends_with(".tmp"));
+        if !known || !file_type.is_file() || file_type.is_symlink() {
+            return Err(io::Error::other(format!(
+                "session contains an unexpected entry: {name}"
+            )));
+        }
+        files.push(entry.path());
+    }
+    for file in files {
+        fs::remove_file(file)?;
+    }
+    fs::remove_dir(directory)
+}
+
 fn try_session_lease(directory: &Path) -> io::Result<Option<File>> {
     let lease_path = directory.join("lease");
     if !fs::symlink_metadata(&lease_path)
@@ -703,7 +730,7 @@ pub fn prune_empty_sessions(root: &Path) -> io::Result<usize> {
             })
         });
         drop(lease);
-        if !has_payload && only_known && fs::remove_dir_all(&directory).is_ok() {
+        if !has_payload && only_known && remove_closed_session_files(&directory).is_ok() {
             removed += 1;
         }
     }
@@ -718,7 +745,7 @@ pub fn clear_closed_sessions(root: &Path) -> io::Result<CleanupReport> {
         match try_session_lease(&directory) {
             Ok(Some(lease)) => {
                 drop(lease);
-                match fs::remove_dir_all(&directory) {
+                match remove_closed_session_files(&directory) {
                     Ok(()) => report.removed += 1,
                     Err(error) => report
                         .failed
