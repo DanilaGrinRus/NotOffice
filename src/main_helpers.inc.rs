@@ -523,6 +523,50 @@ fn parser_isolation_disabled() -> bool { true }
 #[cfg(not(test))]
 fn parser_isolation_disabled() -> bool { false }
 
+
+fn pdf_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    let flag = args.first().and_then(|value| value.to_str())?;
+    if flag != "--pdf-probe-worker" && flag != "--pdf-render-worker" {
+        return None;
+    }
+    if flag == "--pdf-probe-worker" {
+        if args.len() != 3 {
+            return Some(2);
+        }
+        let input = PathBuf::from(&args[1]);
+        let output = PathBuf::from(&args[2]);
+        let result = (|| -> Result<(), String> {
+            let session = liteoffice::pdf::PdfSession::open(&input)?;
+            let mut text = String::new();
+            for size in &session.pages {
+                text.push_str(&format!("{:.4} {:.4}\n", size[0], size[1]));
+            }
+            std::fs::write(&output, text).map_err(|error| error.to_string())
+        })();
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}.err", output.display())));
+        return Some(if result.is_ok() { 0 } else { 1 });
+    }
+    if args.len() != 4 {
+        return Some(2);
+    }
+    let input = PathBuf::from(&args[1]);
+    let index = args[2].to_string_lossy().parse::<usize>().unwrap_or(usize::MAX);
+    let output = PathBuf::from(&args[3]);
+    let result = (|| -> Result<(), String> {
+        let session = liteoffice::pdf::PdfSession::open(&input)?;
+        session.request_page(index)?;
+        let (_, result) = session
+            .responses
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .map_err(|error| error.to_string())?;
+        let png = result?;
+        std::fs::write(&output, png).map_err(|error| error.to_string())
+    })();
+    let _ = std::fs::remove_file(PathBuf::from(format!("{}.err", output.display())));
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
 fn xlsx_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--xlsx-parse-worker") {

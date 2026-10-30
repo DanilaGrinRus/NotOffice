@@ -45,6 +45,21 @@ pub fn print_pdf(
     }
 }
 
+pub fn print_pdf_isolated(
+    snapshot: std::sync::Arc<Vec<u8>>,
+    settings: PdfPrintSettings,
+) -> Result<PrintOutcome, String> {
+    #[cfg(windows)]
+    {
+        print_pdf_to_inner(snapshot, settings, None, true)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (snapshot, settings);
+        Err("PDF printing requires Windows".into())
+    }
+}
+
 #[cfg(windows)]
 #[doc(hidden)]
 pub fn print_pdf_to(
@@ -52,8 +67,21 @@ pub fn print_pdf_to(
     settings: PdfPrintSettings,
     output: Option<&std::path::Path>,
 ) -> Result<PrintOutcome, String> {
+    print_pdf_to_inner(snapshot, settings, output, false)
+}
+
+fn print_pdf_to_inner(
+    snapshot: std::sync::Arc<Vec<u8>>,
+    settings: PdfPrintSettings,
+    output: Option<&std::path::Path>,
+    isolated: bool,
+) -> Result<PrintOutcome, String> {
     use crate::pdf::PdfSession;
-    let session = PdfSession::from_snapshot(snapshot)?;
+    let session = if isolated {
+        PdfSession::from_snapshot_isolated(snapshot)?
+    } else {
+        PdfSession::from_snapshot(snapshot)?
+    };
     settings.validate(session.pages.len())?;
     let scale = settings
         .percent

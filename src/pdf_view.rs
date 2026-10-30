@@ -21,8 +21,13 @@ impl PdfView {
         self.session.pages.len()
     }
     pub fn open(path: &Path) -> Result<Self, String> {
+        let session = if cfg!(test) {
+            PdfSession::open(path)?
+        } else {
+            PdfSession::open_isolated(path)?
+        };
         Ok(Self {
-            session: PdfSession::open(path)?,
+            session,
             selected: 0,
             pending: None,
             cache: VecDeque::new(),

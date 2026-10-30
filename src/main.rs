@@ -37,6 +37,7 @@ fn main() -> eframe::Result<()> {
         .or_else(doc_worker_mode)
         .or_else(docx_save_worker_mode)
         .or_else(xlsx_save_worker_mode)
+        .or_else(pdf_worker_mode)
     {
         std::process::exit(code);
     }
@@ -4105,7 +4106,7 @@ impl NotOfficeApp {
         )
         .into();
         std::thread::spawn(move || {
-            let result = match liteoffice::pdf_print::print_pdf(snapshot, settings) {
+            let result = match liteoffice::pdf_print::print_pdf_isolated(snapshot, settings) {
                 Ok(print::PrintOutcome::Printed) => {
                     tr!("Задание печати PDF отправлено", "PDF print job sent").into()
                 }
