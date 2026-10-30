@@ -15,6 +15,7 @@ const MAX_XLSX_PARTS: usize = 4_096;
 const MAX_XLSX_CELLS_PER_SHEET: usize = 250_000;
 const MAX_XLSX_TOTAL_CELLS: usize = 500_000;
 const MAX_XLSX_SHARED_STRINGS: usize = 250_000;
+const MAX_CELL_TEXT_BYTES: usize = 1_048_576;
 const MAX_EXCEL_ROWS: usize = 1_048_576;
 const MAX_EXCEL_COLUMNS: usize = 16_384;
 
@@ -454,6 +455,11 @@ fn parse_shared_strings(xml: &[u8]) -> Result<Vec<String>, XlsxError> {
                         "shared strings exceed the cell budget".into(),
                     ));
                 }
+                if value.len() > MAX_CELL_TEXT_BYTES {
+                    return Err(XlsxError::ResourceLimit(
+                        "a shared string exceeds 1 MiB".into(),
+                    ));
+                }
                 strings.push(std::mem::take(&mut value));
             }
             Event::Start(event) if in_string && event.name().as_ref() == b"t" => in_text = true,
@@ -612,6 +618,11 @@ fn parse_worksheet(
                         .unescape()
                         .map_err(|error| XlsxError::InvalidWorkbook(error.to_string()))?,
                 );
+                if value.len() > MAX_CELL_TEXT_BYTES {
+                    return Err(XlsxError::ResourceLimit(
+                        "a cell value exceeds 1 MiB".into(),
+                    ));
+                }
             }
             Event::End(event) if event.name().as_ref() == b"c" => {
                 if let Some(reference) = current_reference.take() {

@@ -2,10 +2,18 @@ use crate::xlsx::{SpreadsheetCell, SpreadsheetModel};
 use calamine::{open_workbook_auto, Data, Range, Reader, SheetType};
 use std::path::Path;
 
+const MAX_XLS_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_XLS_SHEETS: usize = 64;
+const MAX_XLS_CELLS: usize = 500_000;
+const MAX_XLS_ROWS: usize = 1_048_576;
+const MAX_XLS_COLUMNS: usize = 16_384;
+
 #[derive(Debug)]
 pub enum XlsError {
     Workbook(calamine::Error),
     MissingWorksheet,
+    ResourceLimit(String),
+    Io(std::io::Error),
 }
 
 impl std::fmt::Display for XlsError {
@@ -13,11 +21,19 @@ impl std::fmt::Display for XlsError {
         match self {
             Self::Workbook(error) => write!(f, "XLS workbook error: {error}"),
             Self::MissingWorksheet => write!(f, "XLS does not contain a readable worksheet"),
+            Self::ResourceLimit(reason) => write!(f, "XLS exceeds a safety limit: {reason}"),
+            Self::Io(error) => write!(f, "XLS file operation failed: {error}"),
         }
     }
 }
 
 impl std::error::Error for XlsError {}
+
+impl From<std::io::Error> for XlsError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
 
 impl From<calamine::Error> for XlsError {
     fn from(value: calamine::Error) -> Self {
@@ -32,6 +48,10 @@ pub struct XlsPackage {
 
 impl XlsPackage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, XlsError> {
+        let path = path.as_ref();
+        if std::fs::metadata(path)?.len() > MAX_XLS_BYTES {
+            return Err(XlsError::ResourceLimit("file is larger than 64 MiB".into()));
+        }
         let mut workbook = open_workbook_auto(path)?;
         // sheet_names() includes charts, dialogs and macro sheets. Their streams
         // are not worksheet cell data and must never be passed to worksheet_range.
@@ -41,37 +61,77 @@ impl XlsPackage {
             .filter(|sheet| sheet.typ == SheetType::WorkSheet)
             .map(|sheet| sheet.name.clone())
             .collect();
+        if sheet_names.len() > MAX_XLS_SHEETS {
+            return Err(XlsError::ResourceLimit("too many worksheets".into()));
+        }
         let mut sheets = Vec::new();
+        let mut total_cells = 0usize;
         for sheet_name in sheet_names {
-            sheets.push(spreadsheet_from_range(
-                sheet_name.clone(),
-                workbook.worksheet_range(&sheet_name)?,
-            ));
+            let sheet =
+                spreadsheet_from_range(sheet_name.clone(), workbook.worksheet_range(&sheet_name)?)?;
+            total_cells = total_cells.saturating_add(sheet.cells.len());
+            if total_cells > MAX_XLS_CELLS {
+                return Err(XlsError::ResourceLimit(
+                    "workbook cell count exceeds the 500000-cell budget".into(),
+                ));
+            }
+            sheets.push(sheet);
         }
         let model = sheets.first().cloned().ok_or(XlsError::MissingWorksheet)?;
         Ok(Self { model, sheets })
     }
 }
 
-fn spreadsheet_from_range(sheet_name: String, range: Range<Data>) -> SpreadsheetModel {
+fn spreadsheet_from_range(
+    sheet_name: String,
+    range: Range<Data>,
+) -> Result<SpreadsheetModel, XlsError> {
     let (start_row, start_column) = range.start().unwrap_or((0, 0));
+    let rows = range.height();
+    let columns = range.width();
+    if rows > MAX_XLS_ROWS || columns > MAX_XLS_COLUMNS {
+        return Err(XlsError::ResourceLimit(
+            "worksheet dimensions exceed Excel limits".into(),
+        ));
+    }
+    let dimensions = rows
+        .checked_mul(columns)
+        .ok_or_else(|| XlsError::ResourceLimit("worksheet dimensions overflowed".into()))?;
+    if dimensions > MAX_XLS_CELLS {
+        return Err(XlsError::ResourceLimit(
+            "worksheet dimensions exceed the 500000-cell budget".into(),
+        ));
+    }
     let mut cells = Vec::new();
     for (row, column, value) in range.cells() {
         if matches!(value, Data::Empty) {
             continue;
         }
+        if cells.len() >= MAX_XLS_CELLS {
+            return Err(XlsError::ResourceLimit(
+                "worksheet cell count exceeds the 500000-cell budget".into(),
+            ));
+        }
+        let displayed = displayed_cell_value(value);
+        if displayed.len() > 1_048_576 {
+            return Err(XlsError::ResourceLimit("a cell value exceeds 1 MiB".into()));
+        }
         cells.push(SpreadsheetCell {
             row: start_row as usize + row,
             column: start_column as usize + column,
-            value: displayed_cell_value(value),
+            value: displayed,
         });
     }
-    SpreadsheetModel {
+    let row_count = (start_row as usize).saturating_add(rows).min(MAX_XLS_ROWS);
+    let column_count = (start_column as usize)
+        .saturating_add(columns)
+        .min(MAX_XLS_COLUMNS);
+    Ok(SpreadsheetModel {
         sheet_name,
         cells,
-        row_count: start_row as usize + range.height(),
-        column_count: start_column as usize + range.width(),
-    }
+        row_count,
+        column_count,
+    })
 }
 
 fn displayed_cell_value(value: &Data) -> String {
@@ -203,7 +263,7 @@ mod tests {
             Cell::new((1, 2), Data::String("Budget".into())),
             Cell::new((3, 4), Data::Int(42)),
         ]);
-        let model = spreadsheet_from_range("Sheet1".into(), range);
+        let model = spreadsheet_from_range("Sheet1".into(), range).unwrap();
         assert_eq!(model.cell_value(1, 2), "Budget");
         assert_eq!(model.cell_value(3, 4), "42");
         assert_eq!((model.row_count, model.column_count), (4, 5));

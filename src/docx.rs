@@ -15,6 +15,10 @@ const MAX_DOCX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_DOCX_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_DOCX_UNCOMPRESSED_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DOCX_PARTS: usize = 4_096;
+const MAX_DOCX_PARAGRAPHS: usize = 100_000;
+const MAX_DOCX_FRAGMENTS: usize = 500_000;
+const MAX_DOCX_FRAGMENT_BYTES: usize = 1_048_576;
+const MAX_DOCX_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const TEMP_CREATE_ATTEMPTS: u32 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1132,6 +1136,34 @@ pub fn parse_document_xml(xml: &[u8]) -> Result<DocumentModel, DocxError> {
         return Err(DocxError::InvalidDocumentXml(
             "no editable paragraphs or text fragments found".into(),
         ));
+    }
+    if paragraphs.len() > MAX_DOCX_PARAGRAPHS || blocks.len() > MAX_DOCX_PARAGRAPHS {
+        return Err(DocxError::ResourceLimit(
+            "document paragraph/block count exceeds the 100000 budget".into(),
+        ));
+    }
+    let mut fragment_count = 0usize;
+    let mut total_text = 0usize;
+    for paragraph in &paragraphs {
+        fragment_count = fragment_count.saturating_add(paragraph.fragments.len());
+        if fragment_count > MAX_DOCX_FRAGMENTS {
+            return Err(DocxError::ResourceLimit(
+                "document fragment count exceeds the 500000 budget".into(),
+            ));
+        }
+        for fragment in &paragraph.fragments {
+            if fragment.text.len() > MAX_DOCX_FRAGMENT_BYTES {
+                return Err(DocxError::ResourceLimit(
+                    "a document text fragment exceeds 1 MiB".into(),
+                ));
+            }
+            total_text = total_text.saturating_add(fragment.text.len());
+            if total_text > MAX_DOCX_TEXT_BYTES {
+                return Err(DocxError::ResourceLimit(
+                    "document text exceeds the 16 MiB budget".into(),
+                ));
+            }
+        }
     }
     Ok(DocumentModel { paragraphs, blocks })
 }

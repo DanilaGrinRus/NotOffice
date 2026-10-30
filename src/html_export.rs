@@ -64,6 +64,9 @@ pub fn document(title: &str, model: &DocumentModel) -> String {
     page(title, &body)
 }
 
+pub const MAX_HTML_ROWS: usize = 5_000;
+pub const MAX_HTML_COLUMNS: usize = 128;
+
 pub fn spreadsheet(title: &str, sheet: &SpreadsheetModel) -> String {
     let max_row = sheet
         .cells
@@ -77,10 +80,12 @@ pub fn spreadsheet(title: &str, sheet: &SpreadsheetModel) -> String {
         .map(|cell| cell.column + 1)
         .max()
         .unwrap_or(0);
+    let rows = max_row.min(MAX_HTML_ROWS);
+    let columns = max_column.min(MAX_HTML_COLUMNS);
     let mut body = String::from("<table>\n");
-    for row in 0..max_row {
+    for row in 0..rows {
         body.push_str("<tr>");
-        for column in 0..max_column {
+        for column in 0..columns {
             let value = sheet.cell_value(row, column);
             body.push_str("<td>");
             body.push_str(&escape(value));
@@ -89,6 +94,12 @@ pub fn spreadsheet(title: &str, sheet: &SpreadsheetModel) -> String {
         body.push_str("</tr>\n");
     }
     body.push_str("</table>\n");
+    if rows < max_row || columns < max_column {
+        body.push_str(&format!(
+            "<p>HTML export is bounded to {} rows and {} columns; the remaining cells were omitted.</p>\n",
+            MAX_HTML_ROWS, MAX_HTML_COLUMNS
+        ));
+    }
     page(title, &body)
 }
 
@@ -188,5 +199,21 @@ mod tests {
         let html = spreadsheet("Data", &sheet);
         assert!(html.contains("<td>A&amp;B</td>"));
         assert!(html.contains("<td>2</td>"));
+    }
+    #[test]
+    fn sparse_far_cell_html_export_is_bounded() {
+        let sheet = SpreadsheetModel {
+            sheet_name: "Data".into(),
+            cells: vec![SpreadsheetCell {
+                row: 1_048_575,
+                column: 16_383,
+                value: "far".into(),
+            }],
+            row_count: 1_048_576,
+            column_count: 16_384,
+        };
+        let html = spreadsheet("Data", &sheet);
+        assert!(html.contains("HTML export is bounded"));
+        assert!(html.len() < 20_000_000);
     }
 }

@@ -4,6 +4,7 @@ use std::path::Path;
 
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CELLS: usize = 500_000;
+const MAX_CELL_BYTES: usize = 1_048_576;
 
 pub fn open(path: &Path) -> Result<SpreadsheetModel, String> {
     let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
@@ -99,6 +100,9 @@ fn parse(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, String> {
             }
             '"' if cell.is_empty() && !quoted => quoted = true,
             character if character == delimiter && !quoted => {
+                if cell.len() > MAX_CELL_BYTES {
+                    return Err("CSV/TSV cell exceeds 1 MiB".into());
+                }
                 row.push(std::mem::take(&mut cell));
                 total_cells += 1;
             }
@@ -106,11 +110,17 @@ fn parse(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, String> {
                 if characters.peek() == Some(&'\n') {
                     characters.next();
                 }
+                if cell.len() > MAX_CELL_BYTES {
+                    return Err("CSV/TSV cell exceeds 1 MiB".into());
+                }
                 row.push(std::mem::take(&mut cell));
                 rows.push(std::mem::take(&mut row));
                 total_cells += 1;
             }
             '\n' if !quoted => {
+                if cell.len() > MAX_CELL_BYTES {
+                    return Err("CSV/TSV cell exceeds 1 MiB".into());
+                }
                 row.push(std::mem::take(&mut cell));
                 rows.push(std::mem::take(&mut row));
                 total_cells += 1;
@@ -123,6 +133,9 @@ fn parse(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, String> {
     }
     if quoted {
         return Err("CSV/TSV has an unterminated quoted field".into());
+    }
+    if cell.len() > MAX_CELL_BYTES {
+        return Err("CSV/TSV cell exceeds 1 MiB".into());
     }
     if !cell.is_empty() || !row.is_empty() {
         row.push(cell);
