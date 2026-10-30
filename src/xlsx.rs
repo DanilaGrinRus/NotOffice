@@ -19,14 +19,14 @@ const MAX_CELL_TEXT_BYTES: usize = 1_048_576;
 const MAX_EXCEL_ROWS: usize = 1_048_576;
 const MAX_EXCEL_COLUMNS: usize = 16_384;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SpreadsheetCell {
     pub row: usize,
     pub column: usize,
     pub value: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct SpreadsheetModel {
     pub sheet_name: String,
     pub cells: Vec<SpreadsheetCell>,
@@ -86,6 +86,7 @@ impl From<quick_xml::Error> for XlsxError {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct XlsxPackage {
     pub model: SpreadsheetModel,
     pub sheets: Vec<SpreadsheetModel>,

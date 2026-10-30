@@ -13,7 +13,7 @@ use zip::{write::SimpleFileOptions, ZipWriter};
 
 pub type CellKey = (usize, usize, usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CellFormat {
     pub size: u16,
     pub bold: bool,

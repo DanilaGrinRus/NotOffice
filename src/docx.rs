@@ -21,7 +21,7 @@ const MAX_DOCX_FRAGMENT_BYTES: usize = 1_048_576;
 const MAX_DOCX_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const TEMP_CREATE_ATTEMPTS: u32 = 32;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct RunFormat {
     pub bold: bool,
     pub italic: bool,
@@ -29,7 +29,7 @@ pub struct RunFormat {
     pub strike: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TextFragment {
     /// Position in document.xml's ordered sequence of w:t nodes.
     pub id: usize,
@@ -41,7 +41,7 @@ pub struct TextFragment {
     pub format: RunFormat,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Paragraph {
     pub fragments: Vec<TextFragment>,
     /// A Word page break that follows this paragraph.
@@ -49,14 +49,14 @@ pub struct Paragraph {
     pub alignment: ParagraphAlignment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ParagraphAlignment {
     #[default]
     Left,
     Center,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DocumentBlock {
     Paragraph(usize),
     Table {
@@ -66,20 +66,20 @@ pub enum DocumentBlock {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct TableRow {
     /// Paragraph indexes for each table cell, in document order.
     pub cells: Vec<Vec<usize>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct DocumentModel {
     pub paragraphs: Vec<Paragraph>,
     /// Top-level paragraphs and table rows preserved for approximate display.
     pub blocks: Vec<DocumentBlock>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DocxImage {
     pub bytes: Vec<u8>,
     /// Paragraph containing this drawing reference (including table paragraphs).
@@ -306,6 +306,43 @@ impl DocxPackage {
             imported_legacy: false,
             source_fingerprint,
             original_document_xml: document_xml,
+            original_package,
+            model,
+            images,
+        })
+    }
+
+    pub fn from_isolated_model(
+        source: PathBuf,
+        model: DocumentModel,
+        images: Vec<DocxImage>,
+    ) -> Result<Self, DocxError> {
+        let source_fingerprint = source_fingerprint(&source)?;
+        let mut original_package = Vec::new();
+        File::open(&source)?
+            .take(MAX_DOCX_PACKAGE_BYTES + 1)
+            .read_to_end(&mut original_package)?;
+        if original_package.len() as u64 > MAX_DOCX_PACKAGE_BYTES {
+            return Err(DocxError::ResourceLimit(
+                "package grew beyond the input limit while opening".into(),
+            ));
+        }
+        if source_fingerprint != self::source_fingerprint(&source)?
+            || source_fingerprint.content_hash != content_hash(&original_package)
+        {
+            return Err(DocxError::SourceChanged);
+        }
+        let mut archive = ZipArchive::new(Cursor::new(original_package.as_slice()))?;
+        validate_package(&mut archive)?;
+        let mut original_document_xml = Vec::new();
+        archive
+            .by_name(DOCUMENT_XML)?
+            .read_to_end(&mut original_document_xml)?;
+        Ok(Self {
+            source,
+            imported_legacy: false,
+            source_fingerprint,
+            original_document_xml,
             original_package,
             model,
             images,

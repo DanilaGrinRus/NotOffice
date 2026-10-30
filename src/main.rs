@@ -30,6 +30,13 @@ use std::path::{Path, PathBuf};
 
 include!("main_helpers.inc.rs");
 fn main() -> eframe::Result<()> {
+    if let Some(code) = xlsx_worker_mode()
+        .or_else(docx_worker_mode)
+        .or_else(xls_worker_mode)
+        .or_else(csv_worker_mode)
+    {
+        std::process::exit(code);
+    }
     liteoffice::app_paths::migrate_legacy_data();
     let raw_args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let start_blank_text = raw_args.iter().any(|argument| argument == BLANK_TEXT_FLAG);
@@ -2333,7 +2340,7 @@ impl NotOfficeApp {
                     )
                     .into(),
                 );
-                match DocxPackage::open(&path) {
+                match open_docx_isolated(&path) {
                     Ok(package) => {
                         self.record_open_stage(
                             tr!(
@@ -2365,7 +2372,7 @@ impl NotOfficeApp {
                     )
                     .into(),
                 );
-                match XlsxPackage::open(&path) {
+                match open_xlsx_isolated(&path) {
                     Ok(package) => {
                         self.record_open_stage(
                             tr!(
@@ -2400,7 +2407,7 @@ impl NotOfficeApp {
                 self.record_open_stage(
                     tr!("Открытие: загрузка таблицы", "Open: loading spreadsheet").into(),
                 );
-                match XlsPackage::open(&path) {
+                match open_xls_isolated(&path) {
                     Ok(package) => {
                         self.record_open_stage(
                             tr!(
@@ -2430,7 +2437,7 @@ impl NotOfficeApp {
                     }
                 }
             }
-            DocumentKind::Csv => match liteoffice::csv_import::open(&path) {
+            DocumentKind::Csv => match open_csv_isolated(&path) {
                 Ok(model) => {
                     self.opened_path = Some(path.clone());
                     self.spreadsheet = Some(SpreadsheetDocument::from_sheets(vec![model]));

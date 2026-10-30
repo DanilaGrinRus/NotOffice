@@ -495,3 +495,401 @@ fn app_icon() -> egui::IconData {
     }
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IsolatedSpreadsheet {
+    model: liteoffice::xlsx::SpreadsheetModel,
+    sheets: Vec<liteoffice::xlsx::SpreadsheetModel>,
+    formats: Vec<(
+        liteoffice::workbook_edit::CellKey,
+        liteoffice::workbook_edit::CellFormat,
+    )>,
+    formulas: Vec<(liteoffice::workbook_edit::CellKey, String)>,
+}
+
+impl IsolatedSpreadsheet {
+    fn into_package(self) -> XlsxPackage {
+        XlsxPackage {
+            model: self.model,
+            sheets: self.sheets,
+            formats: self.formats.into_iter().collect(),
+            formulas: self.formulas.into_iter().collect(),
+        }
+    }
+}
+
+#[cfg(test)]
+fn parser_isolation_disabled() -> bool { true }
+#[cfg(not(test))]
+fn parser_isolation_disabled() -> bool { false }
+
+fn xlsx_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--xlsx-parse-worker") {
+        return None;
+    }
+    if args.len() != 3 { // flag + input + output
+        return Some(2);
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[2]);
+    let result = XlsxPackage::open(&input);
+    let write = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)?;
+        match result {
+            Ok(package) => {
+                let isolated = IsolatedSpreadsheet {
+                    model: package.model,
+                    sheets: package.sheets,
+                    formats: package.formats.into_iter().collect(),
+                    formulas: package.formulas.into_iter().collect(),
+                };
+                serde_json::to_writer(&mut file, &isolated)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+            }
+            Err(error) => {
+                use std::io::Write as _;
+                file.write_all(error.to_string().as_bytes())?;
+                return Err(std::io::Error::other(error.to_string()));
+            }
+        }
+        file.flush()?;
+        Ok(())
+    })();
+    Some(if write.is_ok() { 0 } else { 1 })
+}
+
+fn open_xlsx_isolated(path: &Path) -> Result<XlsxPackage, String> {
+    if parser_isolation_disabled() {
+        return XlsxPackage::open(path).map_err(|error| error.to_string());
+    }
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let output = std::env::temp_dir().join(format!(
+        "notoffice-xlsx-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&output);
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--xlsx-parse-worker")
+        .arg(path)
+        .arg(&output)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return Err(format!("XLSX parser process failed: {error}"));
+            }
+        }
+    };
+    let bytes = std::fs::read(&output).unwrap_or_default();
+    let _ = std::fs::remove_file(&output);
+    match status {
+        Some(status) if status.success() => {
+            let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("XLSX parser returned invalid data: {error}"))?;
+            Ok(isolated.into_package())
+        }
+        Some(_) => Err(if bytes.is_empty() {
+            "XLSX parser process failed".into()
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        }),
+        None => Err("XLSX parser timed out".into()),
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IsolatedDocx {
+    model: liteoffice::docx::DocumentModel,
+    images: Vec<liteoffice::docx::DocxImage>,
+}
+
+
+fn xls_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--xls-parse-worker") {
+        return None;
+    }
+    if args.len() != 3 {
+        return Some(2);
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[2]);
+    let result = XlsPackage::open(&input);
+    let write = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)?;
+        match result {
+            Ok(package) => {
+                let isolated = IsolatedSpreadsheet {
+                    model: package.model,
+                    sheets: package.sheets,
+                    formats: Vec::new(),
+                    formulas: Vec::new(),
+                };
+                serde_json::to_writer(&mut file, &isolated)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+            }
+            Err(error) => {
+                file.write_all(error.to_string().as_bytes())?;
+                return Err(std::io::Error::other(error.to_string()));
+            }
+        }
+        file.flush()?;
+        Ok(())
+    })();
+    Some(if write.is_ok() { 0 } else { 1 })
+}
+
+fn csv_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--csv-parse-worker") {
+        return None;
+    }
+    if args.len() != 3 {
+        return Some(2);
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[2]);
+    let result = liteoffice::csv_import::open(&input);
+    let write = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)?;
+        match result {
+            Ok(model) => {
+                let isolated = IsolatedSpreadsheet {
+                    model: model.clone(),
+                    sheets: vec![model],
+                    formats: Vec::new(),
+                    formulas: Vec::new(),
+                };
+                serde_json::to_writer(&mut file, &isolated)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+            }
+            Err(error) => {
+                file.write_all(error.as_bytes())?;
+                return Err(std::io::Error::other(error));
+            }
+        }
+        file.flush()?;
+        Ok(())
+    })();
+    Some(if write.is_ok() { 0 } else { 1 })
+}
+
+fn run_isolated_worker(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, String> {
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let output = std::env::temp_dir().join(format!(
+        "notoffice-{}-{}-{nonce}.json",
+        label,
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&output);
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg(flag)
+        .arg(path)
+        .arg(&output)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return Err(format!("{label} parser process failed: {error}"));
+            }
+        }
+    };
+    let bytes = std::fs::read(&output).unwrap_or_default();
+    let _ = std::fs::remove_file(&output);
+    match status {
+        Some(status) if status.success() => Ok(bytes),
+        Some(_) => Err(if bytes.is_empty() {
+            format!("{label} parser process failed")
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        }),
+        None => Err(format!("{label} parser timed out")),
+    }
+}
+
+fn open_xls_isolated(path: &Path) -> Result<XlsPackage, String> {
+    if parser_isolation_disabled() {
+        return XlsPackage::open(path).map_err(|error| error.to_string());
+    }
+    let bytes = run_isolated_worker(path, "--xls-parse-worker", "xls")?;
+    let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("XLS parser returned invalid data: {error}"))?;
+    let package = isolated.into_package();
+    Ok(XlsPackage {
+        model: package.model,
+        sheets: package.sheets,
+    })
+}
+
+fn open_csv_isolated(path: &Path) -> Result<SpreadsheetModel, String> {
+    if parser_isolation_disabled() {
+        return liteoffice::csv_import::open(path);
+    }
+    let bytes = run_isolated_worker(path, "--csv-parse-worker", "csv")?;
+    let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("CSV parser returned invalid data: {error}"))?;
+    Ok(isolated.model)
+}
+
+fn docx_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--docx-parse-worker") {
+        return None;
+    }
+    if args.len() != 3 {
+        return Some(2);
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[2]);
+    let result = DocxPackage::open(&input);
+    let write = (|| -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)?;
+        match result {
+            Ok(package) => {
+                let isolated = IsolatedDocx {
+                    model: package.model,
+                    images: package.images,
+                };
+                serde_json::to_writer(&mut file, &isolated)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+            }
+            Err(error) => {
+                file.write_all(error.to_string().as_bytes())?;
+                return Err(std::io::Error::other(error.to_string()));
+            }
+        }
+        file.flush()?;
+        Ok(())
+    })();
+    Some(if write.is_ok() { 0 } else { 1 })
+}
+
+fn open_docx_isolated(path: &Path) -> Result<DocxPackage, String> {
+    if parser_isolation_disabled() {
+        return DocxPackage::open(path).map_err(|error| error.to_string());
+    }
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let output = std::env::temp_dir().join(format!(
+        "notoffice-docx-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&output);
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--docx-parse-worker")
+        .arg(path)
+        .arg(&output)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                return Err(format!("DOCX parser process failed: {error}"));
+            }
+        }
+    };
+    let bytes = std::fs::read(&output).unwrap_or_default();
+    let _ = std::fs::remove_file(&output);
+    match status {
+        Some(status) if status.success() => {
+            let isolated: IsolatedDocx = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("DOCX parser returned invalid data: {error}"))?;
+            DocxPackage::from_isolated_model(path.to_path_buf(), isolated.model, isolated.images)
+                .map_err(|error| error.to_string())
+        }
+        Some(_) => Err(if bytes.is_empty() {
+            "DOCX parser process failed".into()
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        }),
+        None => Err("DOCX parser timed out".into()),
+    }
+}
+
