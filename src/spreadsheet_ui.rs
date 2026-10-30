@@ -20,6 +20,7 @@ pub struct SpreadsheetDocument {
     pub range_paste_requested: bool,
     pub selection: TableSelection,
     pub range_drag_start: Option<(usize, usize)>,
+    pub last_fill: Option<(usize, usize, usize, usize, usize)>,
     pub horizontal_offset: f32,
     pub vertical_offset: f32,
     pub decimal_places: Option<u8>,
@@ -957,6 +958,7 @@ impl SpreadsheetDocument {
             horizontal_offset: self.horizontal_offset,
             vertical_offset: self.vertical_offset,
             range_drag_start: self.range_drag_start,
+            last_fill: self.last_fill,
             ..Default::default()
         };
         let clear_active = edit.clear_cell_selection;
@@ -1000,6 +1002,7 @@ impl SpreadsheetDocument {
             }
         }
         self.range_drag_start = edit.range_drag_start;
+        self.last_fill = edit.last_fill;
         let range_has_more_than_one_cell =
             match (self.selection.range_start, self.selection.range_end) {
                 (Some(start), Some(end)) => start != end,
@@ -1176,6 +1179,7 @@ struct InlineEdit {
     context_action: Option<CellAction>,
     cell_rects: Vec<(usize, usize, egui::Rect)>,
     range_drag_start: Option<(usize, usize)>,
+    last_fill: Option<(usize, usize, usize, usize, usize)>,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -1871,7 +1875,12 @@ fn render_cells(
                                                 ));
                                             ui.painter().rect_filled(handle_rect, 1.0, egui::Color32::from_rgb(55, 125, 190));
                                             if handle.dragged() || handle.drag_stopped() {
-                                                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                                                if let Some(pointer) = ui.input(|input| {
+                                                    input
+                                                        .pointer
+                                                        .interact_pos()
+                                                        .or_else(|| input.pointer.latest_pos())
+                                                }) {
                                                     let (top, left, bottom, right) = selection
                                                         .as_ref()
                                                         .and_then(|selection| {
@@ -1901,8 +1910,12 @@ fn render_cells(
                                                     };
                                                     if target < top || target > bottom {
                                                         edit.fill = Some((top, left, bottom, right, target));
-                                                        edit.fill_release = handle.drag_stopped();
+                                                        edit.last_fill = edit.fill;
                                                     }
+                                                }
+                                                if handle.drag_stopped() {
+                                                    edit.fill = edit.fill.or(edit.last_fill);
+                                                    edit.fill_release = true;
                                                 }
                                             }
                                         }
