@@ -23,6 +23,9 @@ pub struct SpreadsheetDocument {
     pub vertical_offset: f32,
     pub decimal_places: Option<u8>,
     pub formula_input: String,
+    pub value_input: String,
+    pub value_input_id: Option<egui::Id>,
+    pub formula_input_id: Option<egui::Id>,
     pub formula_message: Option<String>,
     /// Set by a double-click on a read-only cell; the shell opens the edit dialog.
     pub cell_edit_request: Option<(usize, usize, String)>,
@@ -358,7 +361,7 @@ impl SpreadsheetDocument {
             })
             .or(self.selected_cell)?;
         let sheet = self.selected_sheet()?;
-        let (clipboard, text) = if self.selection.row.is_some() {
+        let (clipboard, text) = if self.selection.row.is_some() || self.selection.column.is_none() {
             let values = (0..sheet.column_count.min(16_384))
                 .map(|column| sheet.cell_value(row, column).to_owned())
                 .collect::<Vec<_>>();
@@ -613,6 +616,40 @@ impl SpreadsheetDocument {
                 self.formats.insert(key, format);
                 changed = true;
             }
+            if let Some((selected_row, selected_column)) = self.selected_cell {
+                ui.label(tr!("Значение", "Value"));
+                let value_id = egui::Id::new((
+                    "workbook-value-input",
+                    self.selected_sheet,
+                    selected_row,
+                    selected_column,
+                ));
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.value_input)
+                        .id(value_id)
+                        .desired_width(170.0)
+                        .char_limit(32767),
+                );
+                self.value_input_id = Some(response.id);
+                if response.gained_focus() {
+                    let mut state = egui::text_edit::TextEditState::load(ui.ctx(), response.id)
+                        .unwrap_or_default();
+                    let end = self.value_input.chars().count();
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                        egui::text::CCursor::new(0),
+                        egui::text::CCursor::new(end),
+                    )));
+                    state.store(ui.ctx(), response.id);
+                }
+                if response.changed() {
+                    self.set_cell_text(
+                        selected_row,
+                        selected_column,
+                        self.value_input.clone(),
+                    );
+                    changed = true;
+                }
+            }
             ui.allocate_ui_with_layout(
                 egui::vec2(58.0, 24.0),
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -638,6 +675,7 @@ impl SpreadsheetDocument {
             } else {
                 formula
             };
+            self.formula_input_id = Some(formula.id);
             if formula.gained_focus() {
                 formula.request_focus();
             }
@@ -751,13 +789,6 @@ impl SpreadsheetDocument {
             {
                 changed |= self.insert_column_after_selected();
             }
-            if ui
-                .button(tr!("Очистить ячейку", "Clear cell"))
-                .on_hover_text(tr!("Очистить активную ячейку; Ctrl+Z отменяет", "Clear the active cell; Ctrl+Z undoes"))
-                .clicked()
-            {
-                changed |= self.clear_active_cell();
-            }
             egui::ComboBox::from_id_source("cell-highlight")
                 .selected_text(tr!("Цвет ячейки", "Cell colour"))
                 .show_ui(ui, |ui| {
@@ -828,6 +859,12 @@ impl SpreadsheetDocument {
             Some(&mut table_selection),
         );
         self.selection = table_selection;
+        if self.selection.row.is_some() || self.selection.column.is_some() {
+            self.selected_cell = None;
+            self.selection.range_start = None;
+            self.selection.range_end = None;
+            self.focus_pending = false;
+        }
         if let Some(table_rect) = edit.table_rect {
             let clicked_above = ui.input(|input| input.pointer.any_click())
                 && ui
@@ -835,6 +872,8 @@ impl SpreadsheetDocument {
                     .is_some_and(|pos| pos.y < table_rect.top() && ui.max_rect().contains(pos));
             if clicked_above {
                 self.selected_cell = None;
+                self.selection.row = None;
+                self.selection.column = None;
                 self.selection.range_start = None;
                 self.selection.range_end = None;
                 self.focus_pending = false;
@@ -884,7 +923,9 @@ impl SpreadsheetDocument {
             }
         }
         if let Some((top, left, bottom, right, target)) = edit.fill {
-            changed |= self.fill_range(top, left, bottom, right, target);
+            if edit.fill_release {
+                changed |= self.fill_range(top, left, bottom, right, target);
+            }
         }
         if let Some(cell) = edit.navigate.or(selected) {
             if self.selected_cell != Some(cell) {
@@ -898,6 +939,10 @@ impl SpreadsheetDocument {
                         self.selected_sheet()
                             .map(|sheet| sheet.cell_value(cell.0, cell.1).to_owned())
                     })
+                    .unwrap_or_default();
+                self.value_input = self
+                    .selected_sheet()
+                    .map(|sheet| sheet.cell_value(cell.0, cell.1).to_owned())
                     .unwrap_or_default();
                 if edit.navigate.is_some() {
                     self.preview_anchor = Some(cell);
@@ -949,6 +994,12 @@ impl SpreadsheetDocument {
                     Some((row, column, sheet.cell_value(row, column).to_owned()));
             }
         }
+        if self.selection.row.is_some() || self.selection.column.is_some() {
+            self.selected_cell = None;
+            self.selection.range_start = None;
+            self.selection.range_end = None;
+            self.focus_pending = false;
+        }
         changed
     }
 }
@@ -966,6 +1017,7 @@ struct InlineEdit {
     horizontal_offset: f32,
     vertical_offset: f32,
     fill: Option<(usize, usize, usize, usize, usize)>,
+    fill_release: bool,
     submit: Option<(usize, usize, String)>,
     clear_cell_selection: bool,
     table_rect: Option<egui::Rect>,
@@ -1129,6 +1181,55 @@ fn draw_frozen_panes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn preview_fill_value(
+    sheet: &SpreadsheetModel,
+    top: usize,
+    left: usize,
+    bottom: usize,
+    right: usize,
+    target: usize,
+    row: usize,
+    column: usize,
+) -> Option<String> {
+    if column < left || column > right || row <= bottom && row >= top {
+        return None;
+    }
+    if target > bottom && (row <= bottom || row > target) {
+        return None;
+    }
+    if target < top && (row >= top || row < target) {
+        return None;
+    }
+    let source = (top..=bottom)
+        .map(|row| sheet.cell_value(row, column).to_owned())
+        .collect::<Vec<_>>();
+    if source.is_empty() {
+        return None;
+    }
+    let numbers = source
+        .iter()
+        .map(|value| value.trim().parse::<f64>().ok())
+        .collect::<Option<Vec<_>>>()
+        .filter(|values| values.len() >= 2);
+    let step = numbers
+        .as_ref()
+        .map(|values| values[values.len() - 1] - values[values.len() - 2]);
+    if target > bottom {
+        if let Some(step) = step {
+            let last = numbers.as_ref().unwrap().last().copied().unwrap_or(0.0);
+            Some(format!("{}", last + step * (row - bottom) as f64))
+        } else {
+            source.last().cloned()
+        }
+    } else if let Some(step) = step {
+        let first = numbers.as_ref().unwrap()[0];
+        Some(format!("{}", first - step * (top - row) as f64))
+    } else {
+        source.first().cloned()
+    }
+}
+
 fn column_widths(
     sheet: &SpreadsheetModel,
     columns: std::ops::Range<usize>,
@@ -1265,8 +1366,8 @@ fn render_cells(
             }
             ui.add_space(6.0 * zoom);
             if let Some(edit) = edit.as_mut() {
-                let shift_wheel = ui.rect_contains_pointer(ui.max_rect())
-                    && ui.input(|input| input.modifiers.shift);
+                let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
+                let shift_wheel = pointer_over_table && ui.input(|input| input.modifiers.shift);
                 if shift_wheel {
                     let delta = ui.input_mut(|input| {
                         let delta = input.raw_scroll_delta;
@@ -1277,6 +1378,20 @@ fn render_cells(
                     if delta != egui::Vec2::ZERO {
                         edit.horizontal_offset =
                             (edit.horizontal_offset + delta.y + delta.x).clamp(0.0, 5_000.0);
+                    }
+                } else if pointer_over_table {
+                    // Trackpads send horizontal scrolling in the x component.
+                    let delta_x = ui.input_mut(|input| {
+                        let delta = input.raw_scroll_delta.x;
+                        if delta != 0.0 {
+                            input.raw_scroll_delta.x = 0.0;
+                            input.smooth_scroll_delta.x = 0.0;
+                        }
+                        delta
+                    });
+                    if delta_x != 0.0 {
+                        edit.horizontal_offset =
+                            (edit.horizontal_offset + delta_x).clamp(0.0, 5_000.0);
                     }
                 }
             }
@@ -1382,7 +1497,13 @@ fn render_cells(
                                 }
                                 for (column, width) in columns.clone().zip(&column_widths) {
                                     let format = search.formats.and_then(|(formats,sheet)| formats.get(&(sheet,row,column))).copied().unwrap_or_default();
-                                    let mut value = egui::RichText::new(format_display_value(sheet.cell_value(row,column), search.decimals)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
+                                    let fill_state = edit.as_ref().and_then(|edit| edit.fill);
+                                    let cell_value = fill_state
+                                        .and_then(|(top, left, bottom, right, target)| {
+                                            preview_fill_value(sheet, top, left, bottom, right, target, row, column)
+                                        })
+                                        .unwrap_or_else(|| sheet.cell_value(row, column).to_owned());
+                                    let mut value = egui::RichText::new(format_display_value(&cell_value, search.decimals)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
                                     if format.bold { value = value.strong(); }
                                     let is_active = active_cell == Some((row, column));
                                     let is_target = search.target == Some((row, column));
@@ -1473,6 +1594,16 @@ fn render_cells(
                                                     );
                                                     edit.input_id=Some(id);
                                                     edit.input_rect=Some(response.rect);
+                                                    if response.gained_focus() {
+                                                        let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id)
+                                                            .unwrap_or_default();
+                                                        let end = text.chars().count();
+                                                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                                                            egui::text::CCursor::new(0),
+                                                            egui::text::CCursor::new(end),
+                                                        )));
+                                                        state.store(ui.ctx(), id);
+                                                    }
                                                     if edit.focus {response.scroll_to_me(None);}
                                                     if response.changed() {edit.changes.push((row,column,text));}
                                                     return response;
@@ -1510,7 +1641,7 @@ fn render_cells(
                                                     "Drag down to fill cells"
                                                 ));
                                             ui.painter().rect_filled(handle_rect, 1.0, egui::Color32::from_rgb(55, 125, 190));
-                                            if handle.dragged() {
+                                            if handle.dragged() || handle.drag_stopped() {
                                                 if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
                                                     let (top, left, bottom, right) = selection
                                                         .as_ref()
@@ -1532,6 +1663,7 @@ fn render_cells(
                                                     };
                                                     if target < top || target > bottom {
                                                         edit.fill = Some((top, left, bottom, right, target));
+                                                        edit.fill_release = handle.drag_stopped();
                                                     }
                                                 }
                                             }
@@ -1591,6 +1723,24 @@ fn render_cells(
                                             });
                                         }
                                     });
+                                    if ui.input(|input| input.modifiers.shift) {
+                                        let range_click = ui.interact(
+                                            response.rect,
+                                            egui::Id::new(("workbook-range", row, column)),
+                                            egui::Sense::click(),
+                                        );
+                                        if range_click.clicked() {
+                                            selected = Some((row, column));
+                                            if let Some(selection) = selection.as_deref_mut() {
+                                                if selection.range_start.is_none() {
+                                                    selection.range_start = Some((row, column));
+                                                }
+                                                selection.range_end = Some((row, column));
+                                                selection.row = None;
+                                                selection.column = None;
+                                            }
+                                        }
+                                    }
                                     if response.clicked() {
                                         selected = Some((row, column));
                                         if let Some(selection) = selection.as_deref_mut() {

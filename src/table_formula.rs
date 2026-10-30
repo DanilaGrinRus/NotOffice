@@ -346,9 +346,11 @@ mod tests {
     }
     #[test]
     fn full_precision_format_keeps_a_tiny_fraction() {
-        assert_eq!(format_number(1.0 / 10_000_000_000_000_000.0, None), "0.0000000000000001");
+        assert_eq!(
+            format_number(1.0 / 10_000_000_000_000_000.0, None),
+            "0.0000000000000001"
+        );
         assert_eq!(format_number(0.8, None), "0.8");
         assert_eq!(format_number(0.8, Some(0)), "1");
     }
-
 }

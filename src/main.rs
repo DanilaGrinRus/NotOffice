@@ -1191,6 +1191,16 @@ impl NotOfficeApp {
         if !(has_selection || has_range || has_active_cell) {
             return;
         }
+        let text_control_focused = self.spreadsheet.as_ref().is_some_and(|book| {
+            ctx.memory(|memory| {
+                memory.focused().is_some_and(|focused| {
+                    book.value_input_id == Some(focused) || book.formula_input_id == Some(focused)
+                })
+            })
+        });
+        if text_control_focused {
+            return;
+        }
         if !ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)) {
             return;
         }
