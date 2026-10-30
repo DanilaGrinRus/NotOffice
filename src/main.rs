@@ -42,6 +42,7 @@ fn main() -> eframe::Result<()> {
         .or_else(text_worker_mode)
         .or_else(text_save_worker_mode)
         .or_else(clean_copy_worker_mode)
+        .or_else(legacy_convert_worker_mode)
     {
         std::process::exit(code);
     }
@@ -3997,12 +3998,34 @@ impl NotOfficeApp {
         else {
             return;
         };
-        match DocxPackage::from_legacy(
-            &path,
-            legacy,
-            &self.doc_image_anchors,
-            &self.doc_image_widths,
-        ) {
+        let converted = if parser_isolation_disabled() {
+            DocxPackage::from_legacy(
+                &path,
+                legacy,
+                &self.doc_image_anchors,
+                &self.doc_image_widths,
+            )
+            .map_err(|error| error.to_string())
+        } else {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|time| time.as_nanos())
+                .unwrap_or_default();
+            let temporary = std::env::temp_dir().join(format!(
+                "notoffice-legacy-{}-{nonce}.docx",
+                std::process::id()
+            ));
+            convert_legacy_isolated(
+                &path,
+                &temporary,
+                legacy,
+                &self.doc_image_anchors,
+                &self.doc_image_widths,
+            )
+            .and_then(|()| open_docx_isolated(&temporary))
+            .map_err(|error| error.to_string())
+        };
+        match converted {
             Ok(package) => {
                 self.saved_docx_model = Some(package.model.clone());
                 self.docx = Some(package);
@@ -4281,17 +4304,7 @@ impl NotOfficeApp {
 
 impl eframe::App for NotOfficeApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-        // A malformed document must not turn an isolated parser/UI panic into
-        // abrupt process termination. Keep the window alive and surface a
-        // controlled error instead.
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.show(ctx))).is_err() {
-            self.status = tr!(
-                "Внутренняя ошибка обработки; окно оставлено открытым, данные не перезаписаны",
-                "Internal processing error; the window was kept open and data was not overwritten"
-            )
-            .into();
-            ctx.request_repaint();
-        }
+        self.show(ctx);
     }
 }
 

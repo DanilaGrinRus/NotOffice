@@ -214,3 +214,6 @@
 - Сохранение TXT/MD/RTF вынесено в `--text-save-worker`.
 
 - Clean-copy DOCX/XLSX/legacy DOC выполняется worker-процессом `--clean-copy-worker`.
+
+- TXT/MD/RTF save, clean-copy и legacy DOC→DOCX conversion также вынесены в worker-процессы.
+- Основной release теперь собран с `panic = "abort"`; таймауты и падения worker-процессов не завершают UI.
