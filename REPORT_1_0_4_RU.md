@@ -64,11 +64,11 @@
 
 ## Сборка
 
-- `NotOffice-1.0.4.exe` — 4 558 336 байт.
+- `NotOffice-1.0.4.exe` — 4 554 240 байт.
 - Архивы portable/sources и `SHA256SUMS.txt` — рядом.
 
 Принятый 1.0.0 сохранён; 1.0.3 заменён текущей сборкой. SHA-256:
-`62BFA79464F93BDCA20CF24B433029F908AACEDEE67D4D99F0749CE3CC3C555C`.
+`4D4F31743289670F760F146B6A09D68EB69A0B343DCD1B1E10D6B8AC86D71BF3`.
 Снимки: `evidence/ui-fixes-1.0.4/`.
 
 - Выбор строки/столбца снимает выделение ячейки; клик по пустому месту над таблицей тоже снимает.
@@ -83,3 +83,10 @@
 - Удалены устаревшие Linux RC-пакеты 1.0.0-rc.2 из каталога версии.
 - Из source-архива исключены `evidence/`, `screenshots/` и старые `packages/`.
 - В release EXE остаются строки путей cargo registry (`C:\\Users\\...`), типичные для panic-location; symbols stripped.
+
+## Рефакторинг и remap
+
+- `src/main.rs` уменьшен с ~219 КБ до ~195 КБ; верхнеуровневые helper-функции вынесены в `src/main_helpers.inc.rs`.
+- `src/app_tests.rs` разделён на `src/app_tests/mod.rs` и два включаемых файла тестов; все 253 теста сохранены.
+- Добавлен `packaging/windows/build-release.ps1`: release собирается с `--remap-path-prefix` для домашнего каталога и пути проекта.
+- В свежем EXE больше нет строк `C:\\Users\\nurli` и старых путей `NotOffice-1.0.3\\target`.

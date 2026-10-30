@@ -34,6 +34,8 @@ cargo check --all-targets
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo build --release
+# Для поставки с очищенными путями:
+powershell -File packaging/windows/build-release.ps1
 ```
 
 Готовый исполняемый файл появится в `target/release/notoffice.exe`.

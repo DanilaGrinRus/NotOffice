@@ -1,0 +1,497 @@
+fn spawn_liteoffice_window(document: Option<&Path>) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|error| {
+        tfm!(
+            "не удалось найти исполняемый файл NotOffice: {error}",
+            "could not locate the NotOffice executable: {error}"
+        )
+    })?;
+    liteoffice::startup::new_window_command(executable.into_os_string(), document)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            tfm!(
+                "не удалось открыть независимое окно NotOffice: {error}",
+                "could not start an independent NotOffice window: {error}"
+            )
+        })
+}
+
+/// Ctrl+N keeps its original meaning: a new window that is already a blank text
+/// document, not the start screen.
+fn spawn_blank_text_window() -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|error| {
+        tfm!(
+            "не удалось найти исполняемый файл NotOffice: {error}",
+            "could not locate the NotOffice executable: {error}"
+        )
+    })?;
+    liteoffice::startup::new_text_window_command(executable.into_os_string())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            tfm!(
+                "не удалось открыть независимое окно NotOffice: {error}",
+                "could not start an independent NotOffice window: {error}"
+            )
+        })
+}
+
+/// Command-line flag that opens a window with an empty text document.
+const BLANK_TEXT_FLAG: &str = "--blank-text";
+
+const PARAGRAPH_GAP: f32 = 10.0;
+const FRAGMENT_HEIGHT: f32 = 24.0;
+const FRAGMENT_MIN_WIDTH: f32 = 36.0;
+
+// View-only zoom. Never alters DOCX font sizes or printer page settings.
+// The limits are asserted by tests; the shell itself only calls sanitize_zoom.
+#[allow(dead_code)]
+const MIN_VIEW_ZOOM: f32 = preferences::MIN_VIEW_ZOOM;
+#[allow(dead_code)]
+const MAX_VIEW_ZOOM: f32 = preferences::MAX_VIEW_ZOOM;
+const DEFAULT_VIEW_ZOOM: f32 = preferences::DEFAULT_VIEW_ZOOM;
+
+fn sanitize_view_zoom(zoom: f32) -> f32 {
+    preferences::sanitize_zoom(zoom)
+}
+
+/// Recovery notices are compared by prefix, and the text follows the selected
+/// interface language. Accept both variants so the state machine stays
+/// language-independent.
+fn recovery_notice_pending(text: &str) -> bool {
+    text.starts_with("Ожидание восстановления") || text.starts_with("Recovery pending")
+}
+
+fn recovery_notice_failed(text: &str) -> bool {
+    text.starts_with("ОШИБКА записи") || text.starts_with("Recovery write FAILED")
+}
+
+// egui 0.28 turns Ctrl+Wheel into InputState::zoom_delta(). Applying that
+// factor to the existing document zoom keeps the motion smooth while leaving
+// egui's pixels-per-point (the whole application UI scale) unchanged.
+fn ctrl_wheel_document_zoom(
+    current_zoom: f32,
+    ctrl_held: bool,
+    document_hovered: bool,
+    text_input_or_dialog_active: bool,
+    zoom_factor: f32,
+) -> Option<f32> {
+    if !ctrl_held
+        || !document_hovered
+        || text_input_or_dialog_active
+        || !zoom_factor.is_finite()
+        || zoom_factor <= 0.0
+        || (zoom_factor - 1.0).abs() < f32::EPSILON
+    {
+        return None;
+    }
+    Some(sanitize_view_zoom(current_zoom * zoom_factor))
+}
+
+fn ctrl_s_save_requested(
+    command_held: bool,
+    s_pressed: bool,
+    has_docx: bool,
+    text_field_focused: bool,
+) -> bool {
+    command_held && s_pressed && has_docx && !text_field_focused
+}
+
+fn decode_document_image(
+    ctx: &egui::Context,
+    bytes: &[u8],
+    name: String,
+) -> Option<egui::TextureHandle> {
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let (w, h) = reader.into_dimensions().ok()?;
+    if w == 0 || h == 0 || w > 16384 || h > 16384 || u64::from(w) * u64::from(h) > 32_000_000 {
+        return None;
+    }
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?;
+    let rgba = decoded.to_rgba8();
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [rgba.width() as usize, rgba.height() as usize],
+        rgba.as_raw(),
+    );
+    Some(ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR))
+}
+
+fn decode_doc_gallery(
+    ctx: &egui::Context,
+    package: &LegacyDocPackage,
+) -> Vec<Option<egui::TextureHandle>> {
+    package
+        .images
+        .iter()
+        .enumerate()
+        .map(|(index, image)| {
+            decode_document_image(ctx, &image.bytes, format!("doc-raster-{index}"))
+        })
+        .collect()
+}
+
+// DOC 97-2003 does not expose picture positions through our current raster
+// recovery path. This manual anchor is a VIEW preference only; it does not
+// modify the original DOC or claim to reconstruct Word layout.
+fn draw_legacy_picture(
+    ui: &mut egui::Ui,
+    texture: &egui::TextureHandle,
+    width_pct: f32,
+    _zoom: f32,
+) {
+    let intrinsic = texture.size_vec2();
+    if intrinsic.x <= 0.0 || intrinsic.y <= 0.0 {
+        return;
+    }
+    let width = (ui.available_width().max(100.0) * (width_pct / 100.0)).max(40.0);
+    let scale = (width / intrinsic.x).min(2.0);
+    ui.image((texture.id(), intrinsic * scale));
+}
+
+struct LegacyViewOptions<'a> {
+    zoom: f32,
+    page_settings: print::PageSettings,
+    query: &'a str,
+    current_hit: Option<&'a SearchHit>,
+    scroll_to_hit: bool,
+}
+
+fn render_legacy_doc(
+    ui: &mut egui::Ui,
+    package: &LegacyDocPackage,
+    textures: &[Option<egui::TextureHandle>],
+    image_anchors: &mut Vec<Option<usize>>,
+    image_widths: &mut Vec<f32>,
+    options: &LegacyViewOptions<'_>,
+) {
+    let zoom = options.zoom;
+    let page_settings = options.page_settings;
+    if image_anchors.len() != textures.len() {
+        image_anchors.resize(textures.len(), None);
+    }
+    if image_widths.len() != textures.len() {
+        image_widths.resize(textures.len(), 85.0);
+    }
+    let page_settings = page_settings.sanitized();
+    let (paper_width_mm, _) = page_settings.page_size_mm();
+    let paper_width_px = paper_width_mm * 96.0 / 25.4 * zoom;
+    let margin_px = page_settings.margin_mm * 96.0 / 25.4 * zoom;
+    egui::Frame::none()
+        .fill(egui::Color32::WHITE)
+        .inner_margin(margin_px)
+        .show(ui, |ui| {
+            ui.set_min_width(paper_width_px - 2.0 * margin_px);
+            ui.set_max_width(paper_width_px - 2.0 * margin_px);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.label(egui::RichText::new(tr!("Просмотр DOC — размещение изображений (экспериментально)", "DOC preview — image placement (experimental)"))
+                    .heading().color(egui::Color32::BLACK));
+                ui.label(egui::RichText::new(
+                    "Word 97–2003: text is recovered in CLX order. Raster-to-shape mapping is NOT recovered. \
+                     Word shape CP anchors are read when available, but images are NOT reliably matched to shapes. \
+                     All proposed placements are unverified; manual positions can be saved in a sidecar. \
+                     Original Word layout is not reproduced. Page separators below are height estimates, not print-exact breaks."
+                ).color(egui::Color32::DARK_GRAY));
+                if !textures.is_empty() {
+                    ui.add_space(8.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button(tr!("Все изображения в галерею", "All images to gallery")).clicked() {
+                            image_anchors.iter_mut().for_each(|anchor| *anchor = None);
+                        }
+                        if !package.shape_anchors.is_empty() {
+                            ui.label(tfm!("Найдено привязок фигур Word: {}; подтверждённых растровых связей: {}", "Word shape anchors found: {}; verified raster links: {}",
+                                package.shape_anchors.len(), package.verified_shape_images.len()));
+                            if !package.verified_shape_images.is_empty()
+                                && ui.button(tfm!("Разместить подтверждённые изображения OfficeArt: {}", "Place {} verified OfficeArt images", package.verified_shape_images.len()))
+                                    .on_hover_text(tr!("Сопоставлены только точные байты изображений по ID фигуры и хранилищу BLIP", "Only exact image bytes matched through shape ID and BLIP store"))
+                                    .clicked() {
+                                    for link in &package.verified_shape_images {
+                                        if let Some(target) = image_anchors.get_mut(link.image_index) {
+                                            *target = Some(link.paragraph_index.min(package.paragraphs.len().saturating_sub(1)));
+                                        }
+                                    }
+                            }
+                            if package.shape_anchors.len() == textures.len() {
+                                if ui.button(tr!("Подсказать по CP фигур Word (порядок изображений не проверен)", "Suggest from Word shape CPs (unverified image order)")).clicked() {
+                                    for (i, anchor) in image_anchors.iter_mut().enumerate() {
+                                        *anchor = Some(package.shape_anchors[i].paragraph_index
+                                            .min(package.paragraphs.len().saturating_sub(1)));
+                                    }
+                                }
+                            } else {
+                                ui.label(tr!("Количество фигур и изображений различается; автоматическое сопоставление отключено", "Shape/image counts differ; automatic pairing disabled"));
+                            }
+                        }
+                        if ui.button(tr!("Подсказать равномерные позиции (приблизительно)", "Suggest evenly spaced positions (approximate)")).clicked() {
+                            for (i, anchor) in image_anchors.iter_mut().enumerate() {
+                                if !package.paragraphs.is_empty() {
+                                    *anchor = Some(((i + 1) * package.paragraphs.len()
+                                        / (textures.len() + 1)).min(package.paragraphs.len() - 1));
+                                }
+                            }
+                        }
+                    });
+                    egui::CollapsingHeader::new(tfm!(
+                        "Восстановленные изображения ({}) — задайте позицию и ширину", "Recovered images ({}) — assign position and width", textures.len()
+                    )).default_open(true).show(ui, |ui| {
+                        for i in 0..textures.len() {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(tfm!("Изображение {}", "Image {}", i + 1));
+                                egui::ComboBox::from_id_source(("doc-image-anchor", i))
+                                    .selected_text(match image_anchors[i] {
+                                        Some(index) => tfm!("После абзаца {}", "After paragraph {}", index + 1),
+                                        None => tr!("Только галерея", "Gallery only").to_owned(),
+                                    })
+                                    .width(170.0)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut image_anchors[i], None, tr!("Только галерея", "Gallery only"));
+                                        for paragraph_index in 0..package.paragraphs.len() {
+                                            ui.selectable_value(
+                                                &mut image_anchors[i], Some(paragraph_index),
+                                                tfm!("После абзаца {}", "After paragraph {}", paragraph_index + 1)
+                                            );
+                                        }
+                                    });
+                                ui.label(tr!("Ширина, %:", "Width %:"));
+                                ui.add(egui::DragValue::new(&mut image_widths[i])
+                                    .speed(1.0).range(15.0..=100.0).suffix("%"));
+                            });
+
+                        }
+                    });
+                }
+                ui.add_space(14.0);
+                // The same page plan feeds both preview and Windows Print Preview.
+                let raster_info = package.images.iter().map(|asset| {
+                    match image::ImageReader::new(std::io::Cursor::new(&asset.bytes)).with_guessed_format()
+                        .ok().and_then(|reader| reader.into_dimensions().ok()) {
+                        Some((w,h)) => legacy_layout::RasterInfo { width_px:w, height_px:h, dpi_x:96.0 },
+                        None => legacy_layout::RasterInfo {width_px:0,height_px:0,dpi_x:96.0},
+                    }
+                }).collect::<Vec<_>>();
+                let pages = legacy_layout::paginate(&package.paragraphs, image_anchors, image_widths,
+                    &raster_info, page_settings);
+                let (_, paper_height_mm) = page_settings.page_size_mm();
+                let page_inner_height = (paper_height_mm - 2.0 * page_settings.margin_mm).max(20.0)
+                    * 96.0 / 25.4 * zoom;
+                for (page_index, items) in pages.iter().enumerate() {
+                    ui.add_space(18.0);
+                    ui.label(egui::RichText::new(tfm!("Страница DOC {} из {} (приблизительная разметка)", "DOC page {} of {} (approximate layout)", page_index + 1, pages.len()))
+                        .color(egui::Color32::DARK_GRAY));
+                    egui::Frame::canvas(ui.style()).fill(egui::Color32::WHITE)
+                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::LIGHT_GRAY))
+                        .inner_margin(12.0 * zoom)
+                        .show(ui, |ui| {
+                            ui.set_min_width((page_settings.printable_width_mm() * 96.0 / 25.4 * zoom - 24.0 * zoom).max(100.0));
+                            ui.set_min_height((page_inner_height - 24.0 * zoom).max(100.0));
+                            for item in items {
+                                match item {
+                                    legacy_layout::Item::Paragraph(paragraph_index) => {
+                                        let paragraph = &package.paragraphs[*paragraph_index];
+                                        let links: Vec<_> = package.links.iter()
+                                            .filter(|link| link.paragraph_index == *paragraph_index).collect();
+                                        let matched = !search::ranges(paragraph, options.query, 1).is_empty();
+                                        let active = options.current_hit.is_some_and(|hit| hit.target == SearchTarget::DocParagraph(*paragraph_index));
+                                        let response = egui::Frame::none().fill(if active {
+                                            ui_theme::search_active()
+                                        } else if matched {
+                                            ui_theme::search_hit()
+                                        } else { egui::Color32::TRANSPARENT }).show(ui, |ui| {
+                                        if links.len() == 1 && links[0].label.trim() == paragraph.trim() {
+                                            ui.add(egui::Hyperlink::from_label_and_url(
+                                                egui::RichText::new(paragraph).size(15.0 * zoom),
+                                                links[0].url.as_str(),
+                                            ));
+                                        } else {
+                                            ui.add(egui::Label::new(egui::RichText::new(paragraph)
+                                                .color(egui::Color32::BLACK).size(15.0 * zoom)).wrap());
+                                            for link in links {
+                                                ui.add(egui::Hyperlink::from_label_and_url(
+                                                    egui::RichText::new(format!("↗ {}", link.label)).size(15.0 * zoom),
+                                                    link.url.as_str(),
+                                                ));
+                                            }
+                                        }
+                                        });
+                                        if active && options.scroll_to_hit { response.response.scroll_to_me(Some(egui::Align::Center)); }
+                                        ui.add_space(4.0 * zoom);
+                                    }
+                                    legacy_layout::Item::Image(image_idx) => {
+                                        if let Some(tex) = textures.get(*image_idx).and_then(Option::as_ref) {
+                                            draw_legacy_picture(ui, tex, *image_widths.get(*image_idx).unwrap_or(&85.0), zoom);
+                                            ui.add_space(8.0 * zoom);
+                                        } else {
+                                            ui.colored_label(egui::Color32::DARK_RED, tr!("Не удалось декодировать изображение для просмотра", "Image could not be decoded for preview"));
+                                        }
+                                    }
+                                    legacy_layout::Item::UnplacedHeading => {
+                                        ui.label(egui::RichText::new(tr!("Восстановленные изображения (без позиций; не оригинальная разметка Word)", "Recovered images (unplaced; not original Word layout)"))
+                                            .color(egui::Color32::DARK_GRAY));
+                                    }
+                                }
+                            }
+                        });
+                }
+            });
+        });
+}
+
+fn spreadsheet_print_blocks(
+    book: &SpreadsheetDocument,
+    settings: print::PageSettings,
+) -> Vec<print::PrintBlock> {
+    let Some(sheet) = book
+        .sheets
+        .get(book.selected_sheet)
+        .or_else(|| book.sheets.first())
+    else {
+        return Vec::new();
+    };
+    let max_row = sheet
+        .cells
+        .iter()
+        .map(|cell| cell.row + 1)
+        .max()
+        .unwrap_or(0)
+        .min(10_000);
+    let max_column = sheet
+        .cells
+        .iter()
+        .map(|cell| cell.column + 1)
+        .max()
+        .unwrap_or(0)
+        .min(32);
+    if max_row == 0 || max_column == 0 {
+        return vec![print::PrintBlock::Text(sheet.sheet_name.clone())];
+    }
+    let rows_per_page = if settings.landscape { 24 } else { 34 };
+    let mut blocks = Vec::new();
+    let mut start = 0usize;
+    let mut page = 0usize;
+    while start < max_row {
+        let end = (start + rows_per_page).min(max_row);
+        if page > 0 {
+            blocks.push(print::PrintBlock::PageBreak);
+        }
+        blocks.push(print::PrintBlock::Text(format!(
+            "{} — {}",
+            sheet.sheet_name,
+            page + 1
+        )));
+        for row in start..end {
+            let mut values = Vec::with_capacity(max_column);
+            for column in 0..max_column {
+                let value = sheet
+                    .cells
+                    .iter()
+                    .find(|cell| cell.row == row && cell.column == column)
+                    .map(|cell| cell.value.as_str())
+                    .unwrap_or("");
+                values.push(value.to_owned());
+            }
+            blocks.push(print::PrintBlock::TableRow(values));
+        }
+        start = end;
+        page += 1;
+    }
+    blocks
+}
+
+fn install_windows_fonts(ctx: &egui::Context) {
+    let root = std::path::Path::new(r"C:\Windows\Fonts");
+    let mut defs = egui::FontDefinitions::default();
+    let candidates = [
+        ("Segoe UI", "segoeui.ttf"),
+        ("Arial", "arial.ttf"),
+        ("Segoe UI Symbol", "seguisym.ttf"),
+    ];
+    let mut installed = Vec::new();
+    for (name, filename) in candidates {
+        if let Ok(bytes) = std::fs::read(root.join(filename)) {
+            defs.font_data
+                .insert(name.into(), egui::FontData::from_owned(bytes));
+            installed.push(name.to_string());
+        }
+    }
+    if !installed.is_empty() {
+        if let Some(family) = defs.families.get_mut(&egui::FontFamily::Proportional) {
+            for name in installed.iter().rev() {
+                family.insert(0, name.clone());
+            }
+        }
+    }
+    // The compact shell uses a semibold face for headings and labels. Keep the
+    // regular proportional stack as fallback so missing font files never leave
+    // the custom family undefined (which would panic while laying out text).
+    let fallback = defs
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    let mut semibold = Vec::new();
+    if let Ok(bytes) = std::fs::read(root.join("seguisb.ttf")) {
+        defs.font_data.insert(
+            "Segoe UI Semibold".into(),
+            egui::FontData::from_owned(bytes),
+        );
+        semibold.push("Segoe UI Semibold".to_string());
+    }
+    if semibold.is_empty() {
+        semibold = fallback;
+    } else {
+        semibold.extend(fallback);
+    }
+    defs.families.insert(
+        egui::FontFamily::Name(std::sync::Arc::from("semibold")),
+        semibold,
+    );
+    ctx.set_fonts(defs);
+}
+
+/// Window/taskbar icon drawn in memory: no image file, no extra crate.
+fn app_icon() -> egui::IconData {
+    const SIZE: u32 = 64;
+    fn inside_rounded(x: f32, y: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> bool {
+        if x < x0 || x > x1 || y < y0 || y > y1 {
+            return false;
+        }
+        let cx = x.clamp(x0 + r, x1 - r);
+        let cy = y.clamp(y0 + r, y1 - r);
+        (x - cx).powi(2) + (y - cy).powi(2) <= r * r
+    }
+    let accent = [0x17_u8, 0x6B, 0x5A];
+    let mut rgba = vec![0_u8; (SIZE * SIZE * 4) as usize];
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let px = x as f32 + 0.5;
+            let py = y as f32 + 0.5;
+            let mut color = [0_u8, 0, 0, 0];
+            if inside_rounded(px, py, 4.0, 4.0, 60.0, 60.0, 14.0) {
+                color = [accent[0], accent[1], accent[2], 255];
+            }
+            if inside_rounded(px, py, 19.0, 14.0, 45.0, 50.0, 3.0) {
+                color = [255, 255, 255, 255];
+            }
+            for line_y in [23.0_f32, 30.5, 38.0] {
+                if (25.0..=39.0).contains(&px) && (py - line_y).abs() <= 1.4 {
+                    color = [accent[0], accent[1], accent[2], 255];
+                }
+            }
+            let index = ((y * SIZE + x) * 4) as usize;
+            rgba[index..index + 4].copy_from_slice(&color);
+        }
+    }
+    egui::IconData {
+        rgba,
+        width: SIZE,
+        height: SIZE,
+    }
+}
+
