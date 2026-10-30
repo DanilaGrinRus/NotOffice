@@ -71,7 +71,11 @@ pub fn parse_cell_reference(reference: &str) -> Option<(usize, usize)> {
 }
 
 pub fn format_number(value: f64, decimals: Option<u8>) -> String {
-    let places = decimals.unwrap_or(15).min(15) as usize;
+    let Some(decimals) = decimals else {
+        let text = value.to_string();
+        return if text == "-0" { "0".into() } else { text };
+    };
+    let places = decimals.min(15) as usize;
     let mut text = format!("{value:.places$}");
     if text.contains('.') {
         while text.ends_with('0') {
@@ -340,4 +344,11 @@ mod tests {
         assert_eq!(parse_cell_reference("$AA$10"), Some((9, 26)));
         assert_eq!(parse_cell_reference("A0"), None);
     }
+    #[test]
+    fn full_precision_format_keeps_a_tiny_fraction() {
+        assert_eq!(format_number(1.0 / 10_000_000_000_000_000.0, None), "0.0000000000000001");
+        assert_eq!(format_number(0.8, None), "0.8");
+        assert_eq!(format_number(0.8, Some(0)), "1");
+    }
+
 }

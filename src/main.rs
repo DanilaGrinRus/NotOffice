@@ -101,6 +101,7 @@ struct CellEditDialog {
 struct WorkbookSnapshot {
     sheets: Vec<SpreadsheetModel>,
     formats: std::collections::BTreeMap<CellKey, CellFormat>,
+    formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
 }
 
 struct NotOfficeApp {
@@ -2545,6 +2546,7 @@ impl NotOfficeApp {
         self.spreadsheet.as_ref().map(|book| WorkbookSnapshot {
             sheets: book.sheets.clone(),
             formats: book.formats.clone(),
+            formulas: book.formulas.clone(),
         })
     }
 
@@ -2570,7 +2572,11 @@ impl NotOfficeApp {
             return;
         };
         book.sheets = snapshot.sheets;
-        book.formats = snapshot.formats;
+        book.formats = snapshot.formats.clone();
+        book.formulas = snapshot.formulas;
+        if let Some(editor) = book.editor.as_mut() {
+            editor.formats = snapshot.formats;
+        }
         if book.selected_cell.is_some_and(|(row, column)| {
             book.selected_sheet()
                 .is_none_or(|sheet| row >= sheet.row_count || column >= sheet.column_count)
