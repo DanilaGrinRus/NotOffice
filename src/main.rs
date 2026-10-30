@@ -19,7 +19,7 @@ use liteoffice::replace;
 use liteoffice::search::{self, Hit as SearchHit, Target as SearchTarget};
 use liteoffice::spreadsheet_ui::{
     column_name as spreadsheet_column_name, SearchView as SpreadsheetSearchView,
-    SpreadsheetDocument,
+    SpreadsheetDocument, TableClipboard,
 };
 use liteoffice::theme::Theme;
 use liteoffice::workbook_edit::{CellFormat, CellKey};
@@ -1096,15 +1096,38 @@ impl NotOfficeApp {
                 )
             })
             .unwrap_or((false, false));
-        if !(has_row_or_column || has_range)
-            || (ctx.wants_keyboard_input() && !has_row_or_column && !has_range)
-        {
+        if !(has_row_or_column || has_range) {
             return;
         }
-        if ctx.input_mut(|input| {
-            input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
-                || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
-        }) {
+        let copy_event = ctx.input(|input| {
+            input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::Copy))
+        });
+        let pasted_text = ctx.input(|input| {
+            input.events.iter().find_map(|event| {
+                if let egui::Event::Paste(text) = event {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+        });
+        let paste_event = pasted_text.is_some();
+        let copy_key = !copy_event
+            && ctx.input_mut(|input| {
+                input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
+                    || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+            });
+        if copy_event {
+            ctx.input_mut(|input| {
+                input
+                    .events
+                    .retain(|event| !matches!(event, egui::Event::Copy))
+            });
+        }
+        if copy_key || copy_event {
             let copied = self.spreadsheet.as_mut().and_then(|book| {
                 if has_row_or_column {
                     book.copy_selected_row_or_column()
@@ -1115,38 +1138,70 @@ impl NotOfficeApp {
             if let Some(text) = copied {
                 ctx.copy_text(text);
                 self.status = tr!(
-                    "Строка/столбец скопированы; выберите строку или столбец и нажмите Ctrl+V",
-                    "Row/column copied; select a row or column and press Ctrl+V"
+                    "Строка/столбец/диапазон скопированы; выберите место и нажмите Ctrl+V",
+                    "Row/column/range copied; select a destination and press Ctrl+V"
                 )
                 .into();
             }
             return;
         }
-        if ctx.input_mut(|input| {
-            input.consume_key(egui::Modifiers::CTRL, egui::Key::V)
-                || input.consume_key(egui::Modifiers::COMMAND, egui::Key::V)
-        }) {
-            if !self
-                .spreadsheet
-                .as_ref()
-                .is_some_and(|book| book.editor.is_some())
-            {
-                return;
-            }
-            let before = self.workbook_snapshot();
+        if !paste_event
+            && !ctx.input_mut(|input| {
+                input.consume_key(egui::Modifiers::CTRL, egui::Key::V)
+                    || input.consume_key(egui::Modifiers::COMMAND, egui::Key::V)
+            })
+        {
+            return;
+        }
+        if paste_event {
+            ctx.input_mut(|input| {
+                input
+                    .events
+                    .retain(|event| !matches!(event, egui::Event::Paste(_)))
+            });
+        }
+        if !self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.editor.is_some())
+        {
+            return;
+        }
+        if let Some(text) = pasted_text {
             if self
                 .spreadsheet
-                .as_mut()
-                .is_some_and(SpreadsheetDocument::paste_selected_row_or_column)
+                .as_ref()
+                .is_some_and(|book| book.table_clipboard.is_none())
             {
-                self.record_workbook_edit(before);
-                self.search_dirty = true;
-                self.status = tr!(
-                    "Строка/столбец вставлены; Ctrl+Z отменяет",
-                    "Row/column pasted; Ctrl+Z undoes"
-                )
-                .into();
+                let rows = text
+                    .lines()
+                    .map(|line| line.split('\t').map(str::to_owned).collect::<Vec<_>>())
+                    .collect::<Vec<_>>();
+                if !rows.is_empty() && rows[0].len() == 1 && rows.len() > 1 {
+                    let values = rows.iter().flatten().cloned().collect::<Vec<_>>();
+                    if let Some(book) = self.spreadsheet.as_mut() {
+                        book.table_clipboard = Some(TableClipboard::Column(values));
+                    }
+                } else if !rows.is_empty() {
+                    if let Some(book) = self.spreadsheet.as_mut() {
+                        book.table_clipboard = Some(TableClipboard::Range(rows));
+                    }
+                }
             }
+        }
+        let before = self.workbook_snapshot();
+        if self
+            .spreadsheet
+            .as_mut()
+            .is_some_and(SpreadsheetDocument::paste_selected_row_or_column)
+        {
+            self.record_workbook_edit(before);
+            self.search_dirty = true;
+            self.status = tr!(
+                "Строка/столбец/диапазон вставлены; Ctrl+Z отменяет",
+                "Row/column/range pasted; Ctrl+Z undoes"
+            )
+            .into();
         }
     }
 

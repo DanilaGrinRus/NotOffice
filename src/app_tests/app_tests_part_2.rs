@@ -973,3 +973,72 @@ fn spreadsheet_pdf_export_paginates_and_writes_a_valid_pdf() {
     assert!(bytes.starts_with(b"%PDF-"));
     assert!(bytes.len() > 1000);
 }
+
+#[test]
+fn copy_paste_events_move_selected_range() {
+        let folder = tempfile::tempdir().unwrap();
+        let source = folder.path().join("range-events.xlsx");
+        std::fs::write(&source, b"protected").unwrap();
+        let mut app = NotOfficeApp {
+            opened_path: Some(source),
+            spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+                liteoffice::xlsx::SpreadsheetModel {
+                    sheet_name: "Data".into(),
+                    cells: vec![
+                        liteoffice::xlsx::SpreadsheetCell {
+                            row: 0,
+                            column: 0,
+                            value: "1".into(),
+                        },
+                        liteoffice::xlsx::SpreadsheetCell {
+                            row: 0,
+                            column: 1,
+                            value: "2".into(),
+                        },
+                    ],
+                    row_count: 2,
+                    column_count: 2,
+                },
+            ])),
+            ..Default::default()
+        };
+        app.edit_workbook_copy();
+        {
+            let book = app.spreadsheet.as_mut().unwrap();
+            book.selected_cell = Some((0, 0));
+            book.selection.range_start = Some((0, 0));
+            book.selection.range_end = Some((0, 1));
+        }
+        let copy_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 800.0),
+            )),
+            events: vec![egui::Event::Copy],
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let _ = ctx.run(copy_input, |ctx| app.handle_table_clipboard_shortcuts(ctx));
+        assert!(matches!(
+            app.spreadsheet.as_ref().unwrap().table_clipboard,
+            Some(liteoffice::spreadsheet_ui::TableClipboard::Range(_))
+        ));
+        {
+            let book = app.spreadsheet.as_mut().unwrap();
+            book.selected_cell = Some((1, 0));
+            book.selection.range_start = Some((1, 0));
+            book.selection.range_end = Some((1, 1));
+        }
+        let paste_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 800.0),
+            )),
+            events: vec![egui::Event::Paste("1\t2".into())],
+            ..Default::default()
+        };
+        let _ = ctx.run(paste_input, |ctx| app.handle_table_clipboard_shortcuts(ctx));
+        let book = app.spreadsheet.as_ref().unwrap();
+        assert_eq!(book.sheets[0].cell_value(1, 0), "1");
+        assert_eq!(book.sheets[0].cell_value(1, 1), "2");
+    }
