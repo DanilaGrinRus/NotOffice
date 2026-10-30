@@ -180,7 +180,7 @@ impl SpreadsheetDocument {
                 self.set_cell_text(
                     row,
                     column,
-                    crate::table_formula::format_number(value, self.decimal_places),
+                    crate::table_formula::format_number(value, None),
                 );
                 self.formulas.insert(
                     (self.selected_sheet, row, column),
@@ -257,7 +257,7 @@ impl SpreadsheetDocument {
         let _ = (row, column);
         result
             .ok()
-            .map(|value| crate::table_formula::format_number(value, self.decimal_places))
+            .map(|value| crate::table_formula::format_number(value, None))
     }
 
     pub fn fill_range(
@@ -295,9 +295,9 @@ impl SpreadsheetDocument {
                 .map(|value| value.trim().parse::<f64>().ok())
                 .collect::<Option<Vec<_>>>()
                 .filter(|values| values.len() >= 2);
-            let step = numbers.as_ref().map(|values| {
-                (values[values.len() - 1] - values[values.len() - 2]) / (values.len() - 1) as f64
-            });
+            let step = numbers
+                .as_ref()
+                .map(|values| values[values.len() - 1] - values[values.len() - 2]);
             if target > bottom {
                 for row in bottom + 1..=target {
                     let value = if let Some(step) = step {
@@ -466,10 +466,11 @@ impl SpreadsheetDocument {
             }
         }
         sheet.row_count = sheet.row_count.saturating_add(1).min(1_048_576);
+        let selected_sheet = self.selected_sheet;
         let mut moved = std::collections::BTreeMap::new();
         for (key, formula) in std::mem::take(&mut self.formulas) {
             let (sheet, formula_row, column) = key;
-            let formula_row = if formula_row > row {
+            let formula_row = if sheet == selected_sheet && formula_row >= row {
                 formula_row + 1
             } else {
                 formula_row
@@ -477,6 +478,30 @@ impl SpreadsheetDocument {
             moved.insert((sheet, formula_row, column), formula);
         }
         self.formulas = moved;
+        let mut moved_formats = std::collections::BTreeMap::new();
+        for (key, format) in std::mem::take(&mut self.formats) {
+            let (sheet, format_row, column) = key;
+            let format_row = if sheet == selected_sheet && format_row >= row {
+                format_row + 1
+            } else {
+                format_row
+            };
+            moved_formats.insert((sheet, format_row, column), format);
+        }
+        self.formats = moved_formats;
+        if let Some(editor) = self.editor.as_mut() {
+            let mut moved_editor_formats = std::collections::BTreeMap::new();
+            for (key, format) in std::mem::take(&mut editor.formats) {
+                let (sheet, format_row, column) = key;
+                let format_row = if sheet == selected_sheet && format_row >= row {
+                    format_row + 1
+                } else {
+                    format_row
+                };
+                moved_editor_formats.insert((sheet, format_row, column), format);
+            }
+            editor.formats = moved_editor_formats;
+        }
         true
     }
 
@@ -498,6 +523,42 @@ impl SpreadsheetDocument {
             }
         }
         sheet.column_count = sheet.column_count.saturating_add(1).min(16_384);
+        let selected_sheet = self.selected_sheet;
+        let mut moved = std::collections::BTreeMap::new();
+        for (key, formula) in std::mem::take(&mut self.formulas) {
+            let (sheet, formula_row, formula_column) = key;
+            let formula_column = if sheet == selected_sheet && formula_column >= column {
+                formula_column + 1
+            } else {
+                formula_column
+            };
+            moved.insert((sheet, formula_row, formula_column), formula);
+        }
+        self.formulas = moved;
+        let mut moved_formats = std::collections::BTreeMap::new();
+        for (key, format) in std::mem::take(&mut self.formats) {
+            let (sheet, format_row, format_column) = key;
+            let format_column = if sheet == selected_sheet && format_column >= column {
+                format_column + 1
+            } else {
+                format_column
+            };
+            moved_formats.insert((sheet, format_row, format_column), format);
+        }
+        self.formats = moved_formats;
+        if let Some(editor) = self.editor.as_mut() {
+            let mut moved_editor_formats = std::collections::BTreeMap::new();
+            for (key, format) in std::mem::take(&mut editor.formats) {
+                let (sheet, format_row, format_column) = key;
+                let format_column = if sheet == selected_sheet && format_column >= column {
+                    format_column + 1
+                } else {
+                    format_column
+                };
+                moved_editor_formats.insert((sheet, format_row, format_column), format);
+            }
+            editor.formats = moved_editor_formats;
+        }
         true
     }
 

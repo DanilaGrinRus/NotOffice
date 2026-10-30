@@ -71,7 +71,7 @@ pub fn parse_cell_reference(reference: &str) -> Option<(usize, usize)> {
 }
 
 pub fn format_number(value: f64, decimals: Option<u8>) -> String {
-    let places = decimals.unwrap_or(6).min(6) as usize;
+    let places = decimals.unwrap_or(15).min(15) as usize;
     let mut text = format!("{value:.places$}");
     if text.contains('.') {
         while text.ends_with('0') {
