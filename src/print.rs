@@ -395,6 +395,7 @@ pub(crate) struct PrintJobFiles {
     directory: std::path::PathBuf,
     assets: Vec<std::path::PathBuf>,
     helper_source: String,
+    manifest: String,
 }
 
 #[cfg(windows)]
@@ -407,20 +408,12 @@ impl PrintJobFiles {
         let directory =
             std::env::temp_dir().join(format!("liteoffice-print-{}-{seed}", std::process::id()));
         std::fs::create_dir(&directory).map_err(|error| error.to_string())?;
-        let files = Self {
+        Ok(Self {
             directory,
             assets: Vec::new(),
             helper_source: helper.to_owned(),
-        };
-        let mut file = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(files.directory.join("job.txt"))
-            .map_err(|error| error.to_string())?;
-        file.write_all(manifest.as_bytes())
-            .map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-        Ok(files)
+            manifest: manifest.to_owned(),
+        })
     }
 
     pub(crate) fn add_asset(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {
@@ -457,7 +450,8 @@ impl PrintJobFiles {
                 "-EncodedCommand",
                 &encode_powershell_command(BOOTSTRAP),
             ])
-            .env("LITEOFFICE_PRINT_INPUT", self.directory.join("job.txt"))
+            .env("LITEOFFICE_PRINT_STDIN", "1")
+            .env("LITEOFFICE_PRINT_DIR", &self.directory)
             .env("LITEOFFICE_PRINT_HELPER_SOURCE", &self.helper_source)
             .env(
                 "LITEOFFICE_PDF_TEST_OUTPUT",
@@ -468,6 +462,24 @@ impl PrintJobFiles {
             .creation_flags(0x08000000);
         command
     }
+
+    pub(crate) fn run(
+        &self,
+        pdf_test_output: Option<&std::path::Path>,
+    ) -> std::io::Result<std::process::Output> {
+        use std::io::Write as _;
+        use std::process::Stdio;
+        let mut command = self.command(pdf_test_output);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(self.manifest.as_bytes())?;
+        }
+        child.wait_with_output()
+    }
 }
 
 #[cfg(windows)]
@@ -476,8 +488,7 @@ impl Drop for PrintJobFiles {
         for path in &self.assets {
             let _ = std::fs::remove_file(path);
         }
-        // Remove only the manifest and directory exclusively created by us.
-        let _ = std::fs::remove_file(self.directory.join("job.txt"));
+        // No manifest/helper file is written; only assets and the empty directory remain.
         let _ = std::fs::remove_dir(&self.directory);
     }
 }
@@ -491,7 +502,7 @@ pub fn run_windows_print_helper(
     pdf_test_output: Option<&std::path::Path>,
 ) -> Result<PrintOutcome, String> {
     let files = PrintJobFiles::new(manifest, include_str!("print_windows.ps1"))?;
-    let result = files.command(pdf_test_output).output();
+    let result = files.run(pdf_test_output);
     match result {
         Ok(output) if output.status.success() => {
             print_outcome_from_helper_output(&String::from_utf8_lossy(&output.stdout))
@@ -757,7 +768,7 @@ mod tests {
     fn failed_windows_helper_leaves_no_owned_temporary_files() {
         let files = PrintJobFiles::new("T|data", "throw 'controlled failure'").unwrap();
         let directory = files.directory.clone();
-        assert!(!files.command(None).output().unwrap().status.success());
+        assert!(!files.run(None).unwrap().status.success());
         drop(files);
         assert!(!directory.exists());
     }

@@ -3,8 +3,13 @@ param([string]$PdfTestOutput = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$manifest = $env:LITEOFFICE_PRINT_INPUT
-$lines = [IO.File]::ReadAllLines($manifest, [Text.Encoding]::UTF8)
+if ($env:LITEOFFICE_PRINT_STDIN -eq '1') {
+    $lines = @([regex]::Split([Console]::In.ReadToEnd(), "\r\n|\n|\r") | Where-Object { $_.Length -gt 0 })
+} else {
+    $manifest = $env:LITEOFFICE_PRINT_INPUT
+    $lines = [IO.File]::ReadAllLines($manifest, [Text.Encoding]::UTF8)
+}
+if ($lines.Count -eq 0) { throw 'Missing LiteOffice PDF print manifest' }
 $header = $lines[0].Split('|')
 if ($header.Count -ne 2 -or $header[0] -ne 'PDF') { throw 'Invalid PDF print manifest' }
 $scale = $header[1]
@@ -17,7 +22,7 @@ foreach ($line in $lines | Select-Object -Skip 1) {
     $w = [double]::Parse($p[2], $culture)
     $h = [double]::Parse($p[3], $culture)
     if ($w -le 0 -or $h -le 0 -or $w -gt 105000 -or $h -gt 105000) { throw 'Invalid PDF page dimensions' }
-    $script:pages.Add([pscustomobject]@{Path=[IO.Path]::Combine([IO.Path]::GetDirectoryName($manifest),$p[1]); Width=$w; Height=$h})
+    $script:pages.Add([pscustomobject]@{Path=[IO.Path]::Combine($env:LITEOFFICE_PRINT_DIR,$p[1]); Width=$w; Height=$h})
 }
 if ($script:pages.Count -eq 0) { throw 'No PDF pages selected' }
 $document = New-Object Drawing.Printing.PrintDocument

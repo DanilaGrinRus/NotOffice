@@ -88,8 +88,7 @@ pub fn print_pdf_to(
         files.add_asset(&format!("page-{index:04}.png"), &png)?;
     }
     let result = files
-        .command(output)
-        .output()
+        .run(output)
         .map_err(|e| format!("Cannot open PDF print dialog: {e}"))?;
     if !result.status.success() {
         return Err(format!(

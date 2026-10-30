@@ -1,5 +1,8 @@
 //! Versioned sidecar storage for manual legacy DOC image placement.
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+const MAX_SIDECAR_BYTES: u64 = 128 * 1024;
 
 pub type Layout = (Vec<Option<usize>>, Vec<f32>);
 
@@ -57,8 +60,17 @@ pub fn load(
     if !sidecar.exists() {
         return Ok(None);
     }
-    let data = std::fs::read_to_string(&sidecar).map_err(|error| error.to_string())?;
-    if data.len() > 128 * 1024 {
+    let metadata = std::fs::metadata(&sidecar).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_SIDECAR_BYTES {
+        return Err("Layout file is too large".into());
+    }
+    let mut data = String::new();
+    std::fs::File::open(&sidecar)
+        .map_err(|error| error.to_string())?
+        .take(MAX_SIDECAR_BYTES + 1)
+        .read_to_string(&mut data)
+        .map_err(|error| error.to_string())?;
+    if data.len() as u64 > MAX_SIDECAR_BYTES {
         return Err("Layout file is too large".into());
     }
     let mut lines = data.lines();

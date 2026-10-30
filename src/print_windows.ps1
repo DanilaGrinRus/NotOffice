@@ -3,9 +3,13 @@ param([string]$PdfTestOutput = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$manifest = $env:LITEOFFICE_PRINT_INPUT
-if (-not $manifest -or -not [IO.File]::Exists($manifest)) { throw 'Missing LiteOffice print input' }
-$raw = [IO.File]::ReadAllLines($manifest, [Text.Encoding]::UTF8)
+if ($env:LITEOFFICE_PRINT_STDIN -eq '1') {
+    $raw = @([regex]::Split([Console]::In.ReadToEnd(), "\r\n|\n|\r") | Where-Object { $_.Length -gt 0 })
+} else {
+    $manifest = $env:LITEOFFICE_PRINT_INPUT
+    if (-not $manifest -or -not [IO.File]::Exists($manifest)) { throw 'Missing LiteOffice print input' }
+    $raw = [IO.File]::ReadAllLines($manifest, [Text.Encoding]::UTF8)
+}
 $script:blocks = New-Object 'System.Collections.Generic.List[object]'
 $landscape = $false
 $marginMm = 16.5

@@ -1,20 +1,31 @@
 //! Portable recent-document list storage and ordering.
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+const MAX_RECENT_BYTES: u64 = 64 * 1024;
 
 pub const MAX_RECENT_PATHS: usize = 8;
 
 pub fn load_paths(path: &Path) -> Vec<PathBuf> {
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|contents| {
-            contents
-                .lines()
-                .map(PathBuf::from)
-                .filter(|path| path.is_file())
-                .take(MAX_RECENT_PATHS)
-                .collect()
-        })
-        .unwrap_or_default()
+    let mut contents = String::new();
+    let Ok(file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    if file
+        .take(MAX_RECENT_BYTES + 1)
+        .read_to_string(&mut contents)
+        .is_err()
+        || contents.len() as u64 > MAX_RECENT_BYTES
+    {
+        return Vec::new();
+    }
+    contents
+        .lines()
+        .map(PathBuf::from)
+        .filter(|path| !path.to_string_lossy().starts_with("\\"))
+        .filter(|path| path.is_file())
+        .take(MAX_RECENT_PATHS)
+        .collect()
 }
 
 pub fn save_paths(path: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
