@@ -1222,6 +1222,7 @@ impl NotOfficeApp {
                         )
                     };
                     book.table_clipboard = Some(table);
+                    book.clipboard_formats = None;
                 }
             }
         }

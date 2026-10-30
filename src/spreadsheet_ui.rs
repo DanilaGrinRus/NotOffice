@@ -34,6 +34,7 @@ pub struct SpreadsheetDocument {
     pub freeze_top_row: bool,
     pub freeze_left_column: bool,
     pub table_clipboard: Option<TableClipboard>,
+    pub clipboard_formats: Option<Vec<Vec<Option<crate::workbook_edit::CellFormat>>>>,
     pub formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
     pub highlights: CellHighlights,
 }
@@ -343,6 +344,13 @@ impl SpreadsheetDocument {
         let values = (0..sheet.column_count.min(16_384))
             .map(|column| sheet.cell_value(row, column).to_owned())
             .collect::<Vec<_>>();
+        self.clipboard_formats = Some(vec![(0..values.len())
+            .map(|column| {
+                self.formats
+                    .get(&(self.selected_sheet, row, column))
+                    .copied()
+            })
+            .collect()]);
         self.table_clipboard = Some(TableClipboard::Row(values.clone()));
         Some(values.join("\t"))
     }
@@ -352,6 +360,18 @@ impl SpreadsheetDocument {
         let values = (0..sheet.row_count.min(10_000))
             .map(|row| sheet.cell_value(row, column).to_owned())
             .collect::<Vec<_>>();
+        self.clipboard_formats = Some(
+            values
+                .iter()
+                .enumerate()
+                .map(|(row, _)| {
+                    vec![self
+                        .formats
+                        .get(&(self.selected_sheet, row, column))
+                        .copied()]
+                })
+                .collect(),
+        );
         self.table_clipboard = Some(TableClipboard::Column(values.clone()));
         Some(values.join("\n"))
     }
@@ -371,6 +391,19 @@ impl SpreadsheetDocument {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        self.clipboard_formats = Some(
+            (top..=bottom)
+                .map(|row| {
+                    (left..=right)
+                        .map(|column| {
+                            self.formats
+                                .get(&(self.selected_sheet, row, column))
+                                .copied()
+                        })
+                        .collect()
+                })
+                .collect(),
+        );
         self.table_clipboard = Some(TableClipboard::Range(values.clone()));
         Some(
             values
@@ -409,6 +442,28 @@ impl SpreadsheetDocument {
                 .collect::<Vec<_>>();
             (TableClipboard::Column(values.clone()), values.join("\n"))
         };
+        self.clipboard_formats = match &clipboard {
+            TableClipboard::Row(values) => Some(vec![(0..values.len())
+                .map(|column| {
+                    self.formats
+                        .get(&(self.selected_sheet, row, column))
+                        .copied()
+                })
+                .collect()]),
+            TableClipboard::Column(values) => Some(
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(row, _)| {
+                        vec![self
+                            .formats
+                            .get(&(self.selected_sheet, row, column))
+                            .copied()]
+                    })
+                    .collect(),
+            ),
+            TableClipboard::Range(_) => None,
+        };
         self.table_clipboard = Some(clipboard);
         Some(text)
     }
@@ -420,6 +475,7 @@ impl SpreadsheetDocument {
         let Some(clipboard) = self.table_clipboard.clone() else {
             return false;
         };
+        let formats = self.clipboard_formats.clone();
         let (row, column) = self
             .selection
             .row
@@ -443,6 +499,13 @@ impl SpreadsheetDocument {
                         break;
                     }
                     self.set_cell_text(row, offset, value);
+                    if let Some(format) = formats
+                        .as_ref()
+                        .and_then(|rows| rows.first())
+                        .and_then(|row| row.get(offset))
+                    {
+                        self.apply_clipboard_format(row, offset, *format);
+                    }
                 }
             }
             TableClipboard::Column(values) => {
@@ -451,12 +514,30 @@ impl SpreadsheetDocument {
                         break;
                     }
                     self.set_cell_text(offset, column, value);
+                    if let Some(format) = formats
+                        .as_ref()
+                        .and_then(|rows| rows.get(offset))
+                        .and_then(|row| row.first())
+                    {
+                        self.apply_clipboard_format(offset, column, *format);
+                    }
                 }
             }
             TableClipboard::Range(rows) => {
                 for (row_offset, values) in rows.into_iter().enumerate() {
                     for (column_offset, value) in values.into_iter().enumerate() {
                         self.set_cell_text(row + row_offset, column + column_offset, value);
+                        if let Some(format) = formats
+                            .as_ref()
+                            .and_then(|rows| rows.get(row_offset))
+                            .and_then(|row| row.get(column_offset))
+                        {
+                            self.apply_clipboard_format(
+                                row + row_offset,
+                                column + column_offset,
+                                *format,
+                            );
+                        }
                     }
                 }
             }
@@ -484,6 +565,20 @@ impl SpreadsheetDocument {
             self.highlights.remove(&key);
         }
         true
+    }
+
+    fn apply_clipboard_format(
+        &mut self,
+        row: usize,
+        column: usize,
+        format: Option<crate::workbook_edit::CellFormat>,
+    ) {
+        let key = (self.selected_sheet, row, column);
+        let format = format.unwrap_or_default();
+        self.formats.insert(key, format);
+        if let Some(editor) = self.editor.as_mut() {
+            editor.formats.insert(key, format);
+        }
     }
 
     pub fn clear_active_cell(&mut self) -> bool {
@@ -1746,6 +1841,20 @@ fn render_cells(
                                             _ => false,
                                         }
                                     });
+                                    let fill_anchor = selection
+                                        .as_ref()
+                                        .and_then(|selection| match (
+                                            selection.range_start,
+                                            selection.range_end,
+                                        ) {
+                                            (Some(start), Some(end)) => Some((
+                                                start.0.max(end.0),
+                                                start.1.max(end.1),
+                                            )),
+                                            _ => None,
+                                        })
+                                        .or(active_cell);
+                                    let is_fill_anchor = fill_anchor == Some((row, column));
                                     let fill_preview = edit.as_ref().and_then(|edit| edit.fill).is_some_and(
                                         |(top, left, bottom, right, target)| {
                                             column >= left
@@ -1856,7 +1965,7 @@ fn render_cells(
                                             selected = Some((row, column));
                                         }
                                     }
-                                    if is_active && search.editable && !selected_by_table {
+                                    if is_fill_anchor && search.editable && !selected_by_table {
                                         if let Some(edit) = edit.as_deref_mut() {
                                             let handle_rect = egui::Rect::from_center_size(
                                                 response.rect.right_bottom() + egui::vec2(-3.0, -3.0),
