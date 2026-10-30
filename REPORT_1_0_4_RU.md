@@ -212,3 +212,5 @@
 - TXT/MD/RTF открываются worker-процессом `--text-parse-worker`; recovery текста уже изолирован.
 
 - Сохранение TXT/MD/RTF вынесено в `--text-save-worker`.
+
+- Clean-copy DOCX/XLSX/legacy DOC выполняется worker-процессом `--clean-copy-worker`.

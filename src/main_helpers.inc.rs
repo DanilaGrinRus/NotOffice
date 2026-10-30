@@ -723,6 +723,147 @@ struct IsolatedTextSave {
     source: Option<PathBuf>,
 }
 
+
+#[derive(serde::Serialize, serde::Deserialize)]
+enum CleanCopyData {
+    Docx {
+        model: liteoffice::docx::DocumentModel,
+    },
+    Workbook {
+        sheets: Vec<liteoffice::xlsx::SpreadsheetModel>,
+        formats: Vec<(
+            liteoffice::workbook_edit::CellKey,
+            liteoffice::workbook_edit::CellFormat,
+        )>,
+    },
+    Legacy {
+        legacy: liteoffice::doc::LegacyDocPackage,
+        anchors: Vec<Option<usize>>,
+        widths: Vec<f32>,
+    },
+}
+
+fn clean_copy_worker_mode() -> Option<i32> {
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if args.first().and_then(|value| value.to_str()) != Some("--clean-copy-worker") {
+        return None;
+    }
+    if args.len() != 5 {
+        return Some(2);
+    }
+    let source = PathBuf::from(&args[1]);
+    let destination = PathBuf::from(&args[2]);
+    let data_path = PathBuf::from(&args[3]);
+    let result_path = PathBuf::from(&args[4]);
+    let result = (|| -> Result<(), String> {
+        let data: CleanCopyData = serde_json::from_slice(
+            &std::fs::read(&data_path).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        match data {
+            CleanCopyData::Docx { model } => {
+                let mut package = DocxPackage::open(&source).map_err(|error| error.to_string())?;
+                package.model = model;
+                liteoffice::clean_copy::clean_docx(&source, &package, &destination)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+            CleanCopyData::Workbook { sheets, formats } => {
+                let formats = formats.into_iter().collect::<std::collections::BTreeMap<_, _>>();
+                liteoffice::clean_copy::clean_workbook(&source, &sheets, &formats, &destination)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+            CleanCopyData::Legacy { legacy, anchors, widths } => {
+                let package = DocxPackage::from_legacy(&source, &legacy, &anchors, &widths)
+                    .map_err(|error| error.to_string())?;
+                liteoffice::clean_copy::clean_docx(&source, &package, &destination)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+        }
+    })();
+    let message = match &result {
+        Ok(()) => "ok".to_owned(),
+        Err(error) => error.clone(),
+    };
+    let _ = std::fs::write(&result_path, message);
+    Some(if result.is_ok() { 0 } else { 1 })
+}
+
+fn clean_copy_isolated(
+    source: &Path,
+    destination: &Path,
+    data: CleanCopyData,
+) -> Result<(), String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let data_path = std::env::temp_dir().join(format!(
+        "notoffice-clean-copy-{}-{nonce}.json",
+        std::process::id()
+    ));
+    let result_path = std::env::temp_dir().join(format!(
+        "notoffice-clean-copy-result-{}-{nonce}.txt",
+        std::process::id()
+    ));
+    std::fs::write(
+        &data_path,
+        serde_json::to_vec(&data).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("--clean-copy-worker")
+        .arg(source)
+        .arg(destination)
+        .arg(&data_path)
+        .arg(&result_path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(60) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = std::fs::remove_file(&data_path);
+                let _ = std::fs::remove_file(&result_path);
+                return Err(format!("Clean-copy process failed: {error}"));
+            }
+        }
+    };
+    let message = std::fs::read_to_string(&result_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&data_path);
+    let _ = std::fs::remove_file(&result_path);
+    match status {
+        Some(status) if status.success() => Ok(()),
+        Some(_) => Err(if message.is_empty() {
+            "Clean-copy process failed".into()
+        } else {
+            message
+        }),
+        None => Err("Clean-copy process timed out".into()),
+    }
+}
+
 fn text_save_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--text-save-worker") {

@@ -41,6 +41,7 @@ fn main() -> eframe::Result<()> {
         .or_else(recovery_worker_mode)
         .or_else(text_worker_mode)
         .or_else(text_save_worker_mode)
+        .or_else(clean_copy_worker_mode)
     {
         std::process::exit(code);
     }
@@ -3508,6 +3509,49 @@ impl NotOfficeApp {
             self.status = tr!("Создание копии отменено", "Clean copy cancelled").into();
             return;
         };
+        if !parser_isolation_disabled() {
+            let data = if workbook_source {
+                self.spreadsheet
+                    .as_ref()
+                    .map(|book| CleanCopyData::Workbook {
+                        sheets: book.sheets.clone(),
+                        formats: book
+                            .formats
+                            .iter()
+                            .map(|(key, value)| (*key, *value))
+                            .collect(),
+                    })
+            } else if legacy_source {
+                self.legacy_doc
+                    .as_ref()
+                    .map(|legacy| CleanCopyData::Legacy {
+                        legacy: legacy.clone(),
+                        anchors: self.doc_image_anchors.clone(),
+                        widths: self.doc_image_widths.clone(),
+                    })
+            } else {
+                self.docx.as_ref().map(|package| CleanCopyData::Docx {
+                    model: package.model.clone(),
+                })
+            };
+            let Some(data) = data else {
+                return;
+            };
+            match clean_copy_isolated(&source, &destination, data) {
+                Ok(()) => {
+                    self.status = tfm!(
+                        "Копия без активного содержимого создана: {}",
+                        "Passive-only copy created: {}",
+                        destination.display()
+                    );
+                    self.recovery_notice.clear();
+                }
+                Err(error) => {
+                    self.status = tfm!("Копия не создана: {error}", "Clean copy failed: {error}");
+                }
+            }
+            return;
+        }
         let result = if workbook_source {
             self.spreadsheet.as_ref().map_or_else(
                 || {
