@@ -1006,8 +1006,13 @@ impl SpreadsheetDocument {
                 _ => false,
             };
         if range_has_more_than_one_cell {
-            if let Some(focused) = ui.memory(|memory| memory.focused()) {
-                ui.memory_mut(|memory| memory.surrender_focus(focused));
+            // Only transfer focus away from the spreadsheet cell editor that
+            // was active when the range appeared. Surrendering an arbitrary
+            // focused widget every frame made the search field unfocusable.
+            if let Some(input_id) = edit.input_id {
+                if ui.memory(|memory| memory.has_focus(input_id)) {
+                    ui.memory_mut(|memory| memory.surrender_focus(input_id));
+                }
             }
             self.focus_pending = false;
         }
