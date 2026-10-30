@@ -19,6 +19,7 @@ pub struct SpreadsheetDocument {
     /// Set by the explicit Paste range action; consumed by the shell.
     pub range_paste_requested: bool,
     pub selection: TableSelection,
+    pub range_drag_start: Option<(usize, usize)>,
     pub horizontal_offset: f32,
     pub vertical_offset: f32,
     pub decimal_places: Option<u8>,
@@ -54,6 +55,7 @@ pub type CellHighlights = std::collections::BTreeMap<(usize, usize, usize), [u8;
 pub enum TableClipboard {
     Row(Vec<String>),
     Column(Vec<String>),
+    Range(Vec<Vec<String>>),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -353,6 +355,31 @@ impl SpreadsheetDocument {
         Some(values.join("\n"))
     }
 
+    pub fn copy_selected_range(&mut self) -> Option<String> {
+        let start = self.selection.range_start?;
+        let end = self.selection.range_end?;
+        let sheet = self.selected_sheet()?;
+        let top = start.0.min(end.0);
+        let bottom = start.0.max(end.0);
+        let left = start.1.min(end.1);
+        let right = start.1.max(end.1);
+        let values = (top..=bottom)
+            .map(|row| {
+                (left..=right)
+                    .map(|column| sheet.cell_value(row, column).to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        self.table_clipboard = Some(TableClipboard::Range(values.clone()));
+        Some(
+            values
+                .iter()
+                .map(|row| row.join("\t"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
     pub fn copy_selected_row_or_column(&mut self) -> Option<String> {
         let (row, column) = self
             .selection
@@ -423,6 +450,13 @@ impl SpreadsheetDocument {
                         break;
                     }
                     self.set_cell_text(offset, column, value);
+                }
+            }
+            TableClipboard::Range(rows) => {
+                for (row_offset, values) in rows.into_iter().enumerate() {
+                    for (column_offset, value) in values.into_iter().enumerate() {
+                        self.set_cell_text(row + row_offset, column + column_offset, value);
+                    }
                 }
             }
         }
@@ -674,7 +708,7 @@ impl SpreadsheetDocument {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.value_input)
                         .id(value_id)
-                        .desired_width(170.0)
+                        .desired_width(360.0)
                         .char_limit(32767),
                 );
                 self.value_input_id = Some(response.id);
@@ -880,6 +914,7 @@ impl SpreadsheetDocument {
             focus: self.focus_pending,
             horizontal_offset: self.horizontal_offset,
             vertical_offset: self.vertical_offset,
+            range_drag_start: self.range_drag_start,
             ..Default::default()
         };
         let clear_active = edit.clear_cell_selection;
@@ -922,6 +957,7 @@ impl SpreadsheetDocument {
                 edit.range_drag_start = None;
             }
         }
+        self.range_drag_start = edit.range_drag_start;
         if self.selection.row.is_some() || self.selection.column.is_some() {
             self.selected_cell = None;
             self.selection.range_start = None;
@@ -1426,6 +1462,19 @@ fn render_cells(
                 );
                 ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
             }
+            if let Some(selection) = selection.as_ref() {
+                if let Some(column) = selection.column {
+                    ui.label(egui::RichText::new(tfm!("Выделен столбец {}", "Column selected: {}", column_name(column))).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
+                } else if let Some(row) = selection.row {
+                    ui.label(egui::RichText::new(tfm!("Выделена строка {}", "Row selected: {}", row + 1)).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
+                } else if let (Some(start), Some(end)) = (selection.range_start, selection.range_end) {
+                    let top = start.0.min(end.0);
+                    let bottom = start.0.max(end.0);
+                    let left = start.1.min(end.1);
+                    let right = start.1.max(end.1);
+                    ui.label(egui::RichText::new(tfm!("Диапазон: {}{}:{}{}", "Range: {}{}:{}{}", column_name(left), top + 1, column_name(right), bottom + 1)).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
+                }
+            }
             ui.add_space(6.0 * zoom);
             if let Some(edit) = edit.as_mut() {
                 let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
@@ -1480,8 +1529,15 @@ fn render_cells(
                                 });
                             let _ = corner;
                             for (column, width) in columns.clone().zip(&column_widths) {
+                                let selected_column = selection
+                                    .as_ref()
+                                    .is_some_and(|selection| selection.column == Some(column));
                                 let header = egui::Frame::none()
-                                    .fill(egui::Color32::from_rgb(245, 242, 235))
+                                    .fill(if selected_column {
+                                        egui::Color32::from_rgb(205, 228, 250)
+                                    } else {
+                                        egui::Color32::from_rgb(245, 242, 235)
+                                    })
                                     .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(205)))
                                     .show(ui, |ui| {
                                         ui.set_min_size(egui::vec2(*width, 26.0 * zoom));
@@ -1507,12 +1563,17 @@ fn render_cells(
                                     .on_hover_cursor(egui::CursorIcon::ResizeVertical)
                                     .on_hover_text(tr!("Выделить столбец", "Select column"));
                                 if header.clicked() {
+                                    if let Some(edit) = edit.as_deref_mut() {
+                                        edit.clear_cell_selection = true;
+                                    }
                                     if let Some(focused) = ui.memory(|memory| memory.focused()) {
                                         ui.memory_mut(|memory| memory.surrender_focus(focused));
                                     }
                                     if let Some(selection) = selection.as_deref_mut() {
                                         selection.column = Some(column);
                                         selection.row = None;
+                                        selection.range_start = None;
+                                        selection.range_end = None;
                                     }
                                 }
                             }
@@ -1611,17 +1672,17 @@ fn render_cells(
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
                                         } else if selected_by_range {
-                                            egui::Color32::from_rgb(239, 226, 202)
+                                            egui::Color32::from_rgb(190, 218, 248)
                                         } else if is_active {
                                             egui::Color32::from_rgb(211, 234, 255)
                                         } else if selected_by_table {
-                                            egui::Color32::from_rgb(243, 230, 205)
+                                            egui::Color32::from_rgb(205, 228, 250)
                                         } else {
                                             egui::Color32::from_gray(250)
                                         })
                                         .stroke(egui::Stroke::new(
-                                            1.0_f32,
-                                            if is_active {
+                                            if selected_by_range { 1.5_f32 } else { 1.0_f32 },
+                                            if is_active || selected_by_range {
                                                 egui::Color32::from_rgb(55, 125, 190)
                                             } else {
                                                 egui::Color32::from_gray(205)

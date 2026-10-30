@@ -1083,25 +1083,36 @@ impl NotOfficeApp {
     }
 
     fn handle_table_clipboard_shortcuts(&mut self, ctx: &egui::Context) {
-        if self.decision_pending() || ctx.wants_keyboard_input() {
+        if self.decision_pending() {
             return;
         }
-        let has_row_or_column = self
+        let (has_row_or_column, has_range) = self
             .spreadsheet
             .as_ref()
-            .is_some_and(|book| book.selection.row.is_some() || book.selection.column.is_some());
-        if !has_row_or_column {
+            .map(|book| {
+                (
+                    book.selection.row.is_some() || book.selection.column.is_some(),
+                    book.selection.range_start.is_some() && book.selection.range_end.is_some(),
+                )
+            })
+            .unwrap_or((false, false));
+        if !(has_row_or_column || has_range)
+            || (ctx.wants_keyboard_input() && !has_row_or_column && !has_range)
+        {
             return;
         }
         if ctx.input_mut(|input| {
             input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
                 || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
         }) {
-            if let Some(text) = self
-                .spreadsheet
-                .as_mut()
-                .and_then(SpreadsheetDocument::copy_selected_row_or_column)
-            {
+            let copied = self.spreadsheet.as_mut().and_then(|book| {
+                if has_row_or_column {
+                    book.copy_selected_row_or_column()
+                } else {
+                    book.copy_selected_range()
+                }
+            });
+            if let Some(text) = copied {
                 ctx.copy_text(text);
                 self.status = tr!(
                     "Строка/столбец скопированы; выберите строку или столбец и нажмите Ctrl+V",
