@@ -451,6 +451,13 @@ impl DocxPackage {
         for index in 0..source_zip.len() {
             let mut entry = source_zip.by_index(index)?;
             let name = entry.name().to_owned();
+            if is_active_docx_part(&name) {
+                // Never propagate macros, embedded OLE/scripts or active UI
+                // payloads through a normal Save. The clean-copy path creates
+                // the same package without these parts; a normal Save simply
+                // omits them.
+                continue;
+            }
             let options = SimpleFileOptions::default().compression_method(if entry.is_dir() {
                 CompressionMethod::Stored
             } else {
@@ -706,6 +713,17 @@ fn is_safe_package_part(name: &str) -> bool {
         && Path::new(name)
             .components()
             .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn is_active_docx_part(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("word/embeddings/")
+        || lower.starts_with("word/activex/")
+        || lower.starts_with("word/vba")
+        || lower == "word/vbaproject.bin"
+        || lower.starts_with("customui/")
+        || lower.starts_with("word/glossary/")
+        || lower.starts_with("word/oleobjects/")
 }
 
 fn validate_package<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<(), DocxError> {

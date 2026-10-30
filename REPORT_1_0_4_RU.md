@@ -179,3 +179,8 @@
 - Print manifest передаётся дочернему PowerShell через stdin; job.txt и helper.ps1 во временном каталоге больше не создаются.
 - `recent.txt` ограничен 64 КиБ, UNC-пути не проверяются через файловую систему при загрузке.
 - Sidecar раскладки DOC ограничен 128 КиБ до чтения.
+
+- DOCX: активные части (vbaProject, embeddings, ActiveX, customUI, glossary/OLE) не переносятся обычным сохранением; пакет сохраняется без них.
+- Release: `panic=abort` заменён на unwind; `update` ловит панику и оставляет окно открытым с контролируемым статусом.
+- Print: manifest и helper передаются через stdin/окружение; временные job.txt/helper.ps1 не создаются.
+- Добавлен CI-workflow `security.yml` с `cargo audit`.

@@ -4023,7 +4023,17 @@ impl NotOfficeApp {
 
 impl eframe::App for NotOfficeApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-        self.show(ctx);
+        // A malformed document must not turn an isolated parser/UI panic into
+        // abrupt process termination. Keep the window alive and surface a
+        // controlled error instead.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.show(ctx))).is_err() {
+            self.status = tr!(
+                "Внутренняя ошибка обработки; окно оставлено открытым, данные не перезаписаны",
+                "Internal processing error; the window was kept open and data was not overwritten"
+            )
+            .into();
+            ctx.request_repaint();
+        }
     }
 }
 

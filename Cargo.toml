@@ -28,7 +28,6 @@ tempfile = "3.13"
 opt-level = "z"
 lto = "fat"
 codegen-units = 1
-panic = "abort"
 strip = "symbols"
 
 
