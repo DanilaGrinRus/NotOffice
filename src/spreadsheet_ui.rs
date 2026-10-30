@@ -1069,10 +1069,6 @@ impl SpreadsheetDocument {
                     .formulas
                     .get(&(self.selected_sheet, cell.0, cell.1))
                     .cloned()
-                    .or_else(|| {
-                        self.selected_sheet()
-                            .map(|sheet| sheet.cell_value(cell.0, cell.1).to_owned())
-                    })
                     .unwrap_or_default();
                 self.value_input = self
                     .selected_sheet()
@@ -1516,7 +1512,7 @@ fn render_cells(
                 let shift_wheel = pointer_over_table && ui.input(|input| input.modifiers.shift);
                 if shift_wheel {
                     let delta = ui.input_mut(|input| {
-                        let delta = input.raw_scroll_delta;
+                        let delta = input.raw_scroll_delta + input.smooth_scroll_delta;
                         input.raw_scroll_delta = egui::Vec2::ZERO;
                         input.smooth_scroll_delta = egui::Vec2::ZERO;
                         delta
@@ -1528,7 +1524,7 @@ fn render_cells(
                 } else if pointer_over_table {
                     // Trackpads send horizontal scrolling in the x component.
                     let delta_x = ui.input_mut(|input| {
-                        let delta = input.raw_scroll_delta.x;
+                        let delta = input.raw_scroll_delta.x + input.smooth_scroll_delta.x;
                         if delta != 0.0 {
                             input.raw_scroll_delta.x = 0.0;
                             input.smooth_scroll_delta.x = 0.0;
@@ -1545,6 +1541,15 @@ fn render_cells(
                 .as_ref()
                 .map(|edit| edit.horizontal_offset)
                 .unwrap_or(0.0);
+            // Make the native scroll handles visible against the pale table:
+            // the default light-grey handle otherwise blends into the frame.
+            ui.style_mut().spacing.scroll.bar_width = 11.0;
+            ui.style_mut().visuals.widgets.inactive.bg_fill =
+                egui::Color32::from_rgb(92, 92, 92);
+            ui.style_mut().visuals.widgets.hovered.bg_fill =
+                egui::Color32::from_rgb(55, 55, 55);
+            ui.style_mut().visuals.widgets.active.bg_fill =
+                egui::Color32::from_rgb(35, 35, 35);
             let scroll_output = egui::ScrollArea::both()
                 .id_source(("spreadsheet-cells", &sheet.sheet_name, rows.start, columns.start))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
@@ -1728,8 +1733,10 @@ fn render_cells(
                                     let response = egui::Frame::none()
                                         .fill(if is_target {
                                             egui::Color32::from_rgb(255, 214, 120)
-                                        } else if is_match {
-                                            egui::Color32::from_rgb(255, 244, 185)
+                                        } else if selected_by_range {
+                                            egui::Color32::from_rgb(174, 210, 247)
+                                        } else if selected_by_table {
+                                            egui::Color32::from_rgb(184, 216, 246)
                                         } else if let Some(color) = format.fill {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
@@ -1740,12 +1747,10 @@ fn render_cells(
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
-                                        } else if selected_by_range {
-                                            egui::Color32::from_rgb(190, 218, 248)
                                         } else if is_active {
                                             egui::Color32::from_rgb(211, 234, 255)
-                                        } else if selected_by_table {
-                                            egui::Color32::from_rgb(205, 228, 250)
+                                        } else if is_match {
+                                            egui::Color32::from_rgb(255, 244, 185)
                                         } else {
                                             egui::Color32::from_gray(250)
                                         })
@@ -1856,7 +1861,16 @@ fn render_cells(
                                                         })
                                                         .unwrap_or((row, column, row, column));
                                                     let row_height = 22.0 * zoom;
-                                                    let delta = ((pointer.y - response.rect.bottom()) / row_height).ceil() as isize;
+                                                    let base_bottom = edit
+                                                        .cell_rects
+                                                        .iter()
+                                                        .find(|(candidate_row, candidate_column, _)| {
+                                                            *candidate_row == bottom
+                                                                && *candidate_column == right
+                                                        })
+                                                        .map(|(_, _, rect)| rect.bottom())
+                                                        .unwrap_or_else(|| response.rect.bottom());
+                                                    let delta = ((pointer.y - base_bottom) / row_height).ceil() as isize;
                                                     let target = if delta >= 0 {
                                                         bottom.saturating_add(delta as usize)
                                                     } else {
@@ -2031,5 +2045,37 @@ mod tests {
         );
         assert_eq!(super::format_display_value("=A1+B1", Some(2)), "=A1+B1");
         assert_eq!(super::format_display_value("3.14159", None), "3.14159");
+    }
+    #[test]
+    fn filling_two_selected_numbers_continues_the_series() {
+        let sheet = crate::xlsx::SpreadsheetModel {
+            sheet_name: "Data".into(),
+            cells: vec![
+                crate::xlsx::SpreadsheetCell {
+                    row: 0,
+                    column: 0,
+                    value: "1".into(),
+                },
+                crate::xlsx::SpreadsheetCell {
+                    row: 1,
+                    column: 0,
+                    value: "2".into(),
+                },
+            ],
+            row_count: 2,
+            column_count: 1,
+        };
+        let mut document = super::SpreadsheetDocument::from_sheets(vec![sheet]);
+        let path = std::env::temp_dir().join("notoffice-fill-test.xlsx");
+        document.editor = Some(crate::workbook_edit::WorkbookEditor::new(
+            path.clone(),
+            &document.sheets,
+        ));
+        assert!(document.fill_range(0, 0, 1, 0, 4));
+        let sheet = &document.sheets[0];
+        assert_eq!(sheet.cell_value(2, 0), "3");
+        assert_eq!(sheet.cell_value(3, 0), "4");
+        assert_eq!(sheet.cell_value(4, 0), "5");
+        let _ = std::fs::remove_file(path);
     }
 }
