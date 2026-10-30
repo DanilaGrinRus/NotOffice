@@ -39,7 +39,7 @@ impl From<std::io::Error> for DocError {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct LegacyDocPackage {
     pub paragraphs: Vec<String>,
     pub links: Vec<LegacyDocLink>,
@@ -51,7 +51,7 @@ pub struct LegacyDocPackage {
     pub verified_shape_images: Vec<VerifiedShapeImage>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LegacyShapeAnchor {
     /// Character position (UTF-16 code units) in the main story.
     pub cp: u32,
@@ -61,20 +61,20 @@ pub struct LegacyShapeAnchor {
     pub shape_id: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VerifiedShapeImage {
     pub shape_id: u32,
     pub image_index: usize,
     pub paragraph_index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LegacyDocImage {
     pub bytes: Vec<u8>,
     pub format: LegacyImageFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LegacyImageFormat {
     Jpeg,
     Png,
@@ -169,7 +169,7 @@ fn extract_embedded_rasters(data: &[u8]) -> Vec<LegacyDocImage> {
     result
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LegacyDocLink {
     pub paragraph_index: usize,
     pub label: String,

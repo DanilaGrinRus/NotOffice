@@ -34,6 +34,7 @@ fn main() -> eframe::Result<()> {
         .or_else(docx_worker_mode)
         .or_else(xls_worker_mode)
         .or_else(csv_worker_mode)
+        .or_else(doc_worker_mode)
     {
         std::process::exit(code);
     }
@@ -2465,7 +2466,7 @@ impl NotOfficeApp {
                     )
                     .into(),
                 );
-                match LegacyDocPackage::open(&path) {
+                match open_doc_isolated(&path) {
                     Ok(package) => {
                         let paragraph_count = package.paragraphs.len();
                         self.record_open_stage(tfm!(
