@@ -878,6 +878,25 @@ impl SpreadsheetDocument {
             Some(&mut table_selection),
         );
         self.selection = table_selection;
+        if let (Some(start), Some(pointer)) = (
+            edit.range_drag_start,
+            ui.input(|input| input.pointer.interact_pos()),
+        ) {
+            if let Some((row, column, _)) = edit
+                .cell_rects
+                .iter()
+                .find(|(_, _, rect)| rect.contains(pointer))
+                .map(|(row, column, rect)| (*row, *column, *rect))
+            {
+                self.selection.range_start = Some(start);
+                self.selection.range_end = Some((row, column));
+                self.selection.row = None;
+                self.selection.column = None;
+            }
+            if ui.input(|input| input.pointer.primary_released()) {
+                edit.range_drag_start = None;
+            }
+        }
         if self.selection.row.is_some() || self.selection.column.is_some() {
             self.selected_cell = None;
             self.selection.range_start = None;
@@ -1040,6 +1059,8 @@ struct InlineEdit {
     dialog: Option<(usize, usize)>,
     context_cell: Option<(usize, usize)>,
     context_action: Option<CellAction>,
+    cell_rects: Vec<(usize, usize, egui::Rect)>,
+    range_drag_start: Option<(usize, usize)>,
 }
 
 pub fn column_name(mut column: usize) -> String {
@@ -1633,14 +1654,21 @@ fn render_cells(
                                                     value,
                                                 )
                                                 .truncate()
-                                                .sense(egui::Sense::click()),
+                                                .sense(egui::Sense::click_and_drag()),
                                             );
                                             if let Some(edit) = edit.as_ref().filter(|_|search.editable) {
                                                 let id = egui::Id::new(("workbook-inline",edit.generation,edit.sheet,row,column));
-                                                ui.interact(response.rect,id,egui::Sense::click())
+                                                ui.interact(response.rect,id,egui::Sense::click_and_drag())
                                             } else {response}
                                         })
                                         .inner;
+                                    if let Some(edit) = edit.as_deref_mut() {
+                                        edit.cell_rects.push((row, column, response.rect));
+                                        if response.drag_started() {
+                                            edit.range_drag_start = Some((row, column));
+                                            selected = Some((row, column));
+                                        }
+                                    }
                                     if is_active && search.editable && !selected_by_table {
                                         if let Some(edit) = edit.as_deref_mut() {
                                             let handle_rect = egui::Rect::from_center_size(
