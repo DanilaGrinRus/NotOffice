@@ -1042,3 +1042,71 @@ fn copy_paste_events_move_selected_range() {
         assert_eq!(book.sheets[0].cell_value(1, 0), "1");
         assert_eq!(book.sheets[0].cell_value(1, 1), "2");
     }
+#[test]
+fn row_copy_paste_uses_key_events() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("row-events.xlsx");
+    std::fs::write(&source, b"protected").unwrap();
+    let mut app = NotOfficeApp {
+        opened_path: Some(source),
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "Data".into(),
+                cells: vec![
+                    liteoffice::xlsx::SpreadsheetCell {
+                        row: 0,
+                        column: 0,
+                        value: "1".into(),
+                    },
+                    liteoffice::xlsx::SpreadsheetCell {
+                        row: 0,
+                        column: 1,
+                        value: "2".into(),
+                    },
+                ],
+                row_count: 3,
+                column_count: 2,
+            },
+        ])),
+        ..Default::default()
+    };
+    app.edit_workbook_copy();
+    app.spreadsheet.as_mut().unwrap().selection.row = Some(0);
+    app.spreadsheet.as_mut().unwrap().selected_cell = None;
+    let ctx = egui::Context::default();
+    let modifiers = egui::Modifiers::CTRL;
+    let copy_input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))),
+        modifiers,
+        events: vec![egui::Event::Key {
+            key: egui::Key::C,
+            physical_key: Some(egui::Key::C),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(copy_input, |ctx| app.handle_table_clipboard_shortcuts(ctx));
+    assert!(matches!(
+        app.spreadsheet.as_ref().unwrap().table_clipboard,
+        Some(liteoffice::spreadsheet_ui::TableClipboard::Row(_))
+    ));
+    app.spreadsheet.as_mut().unwrap().selection.row = Some(1);
+    let paste_input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))),
+        modifiers,
+        events: vec![egui::Event::Key {
+            key: egui::Key::V,
+            physical_key: Some(egui::Key::V),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(paste_input, |ctx| app.handle_table_clipboard_shortcuts(ctx));
+    assert_eq!(app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(1, 0), "1");
+    assert_eq!(app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(1, 1), "2");
+}
+

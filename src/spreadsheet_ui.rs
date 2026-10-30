@@ -965,11 +965,11 @@ impl SpreadsheetDocument {
             self.focus_pending = false;
         }
         if let Some(table_rect) = edit.table_rect {
-            let clicked_above = ui.input(|input| input.pointer.any_click())
+            let clicked_outside = ui.input(|input| input.pointer.any_click())
                 && ui
                     .input(|input| input.pointer.interact_pos())
-                    .is_some_and(|pos| pos.y < table_rect.top() && ui.max_rect().contains(pos));
-            if clicked_above {
+                    .is_some_and(|pos| !table_rect.contains(pos) && ui.max_rect().contains(pos));
+            if clicked_outside {
                 self.selected_cell = None;
                 self.selection.row = None;
                 self.selection.column = None;
@@ -1570,10 +1570,27 @@ fn render_cells(
                                         ui.memory_mut(|memory| memory.surrender_focus(focused));
                                     }
                                     if let Some(selection) = selection.as_deref_mut() {
-                                        selection.column = Some(column);
-                                        selection.row = None;
-                                        selection.range_start = None;
-                                        selection.range_end = None;
+                                        if ui.input(|input| input.modifiers.shift)
+                                            && selection.column.is_some()
+                                        {
+                                            let first = selection.column.unwrap().min(column);
+                                            let last = selection.column.unwrap().max(column);
+                                            selection.range_start = Some((
+                                                0,
+                                                first,
+                                            ));
+                                            selection.range_end = Some((
+                                                sheet.row_count.saturating_sub(1),
+                                                last,
+                                            ));
+                                            selection.row = None;
+                                            selection.column = None;
+                                        } else {
+                                            selection.column = Some(column);
+                                            selection.row = None;
+                                            selection.range_start = None;
+                                            selection.range_end = None;
+                                        }
                                     }
                                 }
                             }
@@ -1612,10 +1629,27 @@ fn render_cells(
                                         edit.clear_cell_selection = true;
                                     }
                                     if let Some(selection) = selection.as_deref_mut() {
-                                        selection.row = Some(row);
-                                        selection.column = None;
-                                        selection.range_start = None;
-                                        selection.range_end = None;
+                                        if ui.input(|input| input.modifiers.shift)
+                                            && selection.row.is_some()
+                                        {
+                                            let first = selection.row.unwrap().min(row);
+                                            let last = selection.row.unwrap().max(row);
+                                            selection.range_start = Some((
+                                                first,
+                                                0,
+                                            ));
+                                            selection.range_end = Some((
+                                                last,
+                                                sheet.column_count.saturating_sub(1),
+                                            ));
+                                            selection.row = None;
+                                            selection.column = None;
+                                        } else {
+                                            selection.row = Some(row);
+                                            selection.column = None;
+                                            selection.range_start = None;
+                                            selection.range_end = None;
+                                        }
                                     }
                                 }
                                 for (column, width) in columns.clone().zip(&column_widths) {
