@@ -1210,6 +1210,17 @@ impl SpreadsheetDocument {
             self.selection.range_end = None;
             self.focus_pending = false;
         }
+        if self.paste_highlight.is_some()
+            && ui.input(|input| input.pointer.any_click())
+            && ui
+                .input(|input| input.pointer.interact_pos())
+                .is_some_and(|pos| ui.max_rect().contains(pos))
+        {
+            // Any click on the document surface dismisses the paste marker.
+            // Toolbar/menu clicks are outside the document panel and keep it,
+            // so pasting from the "Buffer" menu is still visibly highlighted.
+            self.paste_highlight = None;
+        }
         let Some(sheet) = self.selected_sheet() else {
             return false;
         };
@@ -2016,7 +2027,7 @@ fn render_cells(
                                     let mut value: egui::WidgetText = if is_active {
                                         egui::RichText::new(display_text)
                                             .size(format.size as f32 * zoom)
-                                            .color(egui::Color32::BLACK)
+                                            .color(egui::Color32::WHITE)
                                             .into()
                                     } else {
                                         highlighted_cell_text(
@@ -2084,7 +2095,7 @@ fn render_cells(
                                         }) {
                                             egui::Color32::from_rgb(198, 239, 206)
                                         } else if is_active {
-                                            egui::Color32::from_rgb(255, 252, 225)
+                                            egui::Color32::from_rgb(35, 80, 130)
                                         } else if let Some(color) = format.fill {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
@@ -2129,10 +2140,10 @@ fn render_cells(
                                                             edit.submit = Some((row,column,if response.changed() {text.clone()} else {original_text.clone()}));
                                                         }
                                                     }
-                                                    ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
-                                                    ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
-                                                    ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(180,210,250);
-                                                    ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0_f32,egui::Color32::BLACK);
+                                                    ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(35, 80, 130);
+                                                    ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::WHITE);
+                                                    ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(80,130,190);
+                                                    ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0_f32,egui::Color32::WHITE);
                                                     let inner_width=*width-8.0*zoom;
                                                     let inner_height=(format.size as f32*1.5).max(18.0)*zoom;
                                                     let output=ui.allocate_ui_with_layout(
@@ -2142,7 +2153,7 @@ fn render_cells(
                                                             ui.set_width(inner_width);
                                                             egui::TextEdit::singleline(&mut text).id(id)
                                                                 .font(egui::FontId::proportional(format.size as f32*zoom))
-                                                                .text_color(egui::Color32::BLACK)
+                                                                .text_color(egui::Color32::WHITE)
                                                                 .desired_width(inner_width)
                                                                 .char_limit(32767)
                                                                 .show(ui)
