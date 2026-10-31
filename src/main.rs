@@ -4717,6 +4717,7 @@ impl NotOfficeApp {
                                         .id(id)
                                         .font(egui::FontId::monospace(14.0 * self.zoom))
                                         .text_color(ui_theme::text_ink())
+                                        .desired_width(size.x)
                                         .char_limit(8 * 1024 * 1024)
                                         .show(ui)
                                 },
