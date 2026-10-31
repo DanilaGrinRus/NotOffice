@@ -646,6 +646,21 @@ fn restore_recovery_isolated(
     root: &Path,
     directory: &Path,
 ) -> Result<(RecoveryPayload, bool), String> {
+    #[cfg(windows)]
+    {
+        let _ = root;
+        let bytes = liteoffice::worker_sandbox::run_recovery(directory)?;
+        let payload: RecoveryPayload = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Recovery worker returned invalid data: {error}"))?;
+        let fallback = match &payload {
+            RecoveryPayload::Docx { fallback, .. }
+            | RecoveryPayload::Workbook { fallback, .. }
+            | RecoveryPayload::Text { fallback, .. } => *fallback,
+        };
+        return Ok((payload, fallback));
+    }
+    #[allow(unreachable_code)]
+
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?

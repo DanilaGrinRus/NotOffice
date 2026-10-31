@@ -85,6 +85,74 @@ pub fn run(path: &Path, flag: &str) -> Result<Vec<u8>, String> {
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_recovery(directory: &Path) -> Result<Vec<u8>, String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let sandbox = std::env::temp_dir().join(format!(
+        "notoffice-recovery-sandbox-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&sandbox).map_err(|error| error.to_string())?;
+    let worker = sandbox.join("worker.exe");
+    let current = std::env::current_exe().map_err(|error| error.to_string())?;
+    std::fs::copy(&current, &worker).map_err(|error| error.to_string())?;
+    let copied_root = sandbox.join("root");
+    std::fs::create_dir_all(&copied_root).map_err(|error| error.to_string())?;
+    let name = directory
+        .file_name()
+        .ok_or_else(|| "Recovery session has no directory name".to_owned())?;
+    let copied_session = copied_root.join(name);
+    copy_directory(directory, &copied_session)?;
+    let output = sandbox.join("output.json");
+    let sid = sid_string()?;
+    let grant = format!("*{sid}:(OI)(CI)M");
+    let status = Command::new("icacls")
+        .arg(&sandbox)
+        .arg("/grant")
+        .arg(&grant)
+        .creation_flags(0x08000000)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        let _ = std::fs::remove_dir_all(&sandbox);
+        return Err("Recovery AppContainer ACL grant failed".into());
+    }
+    let args = vec![
+        "--recovery-restore-worker".to_owned(),
+        copied_root.to_string_lossy().into_owned(),
+        copied_session.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+    ];
+    let result = run_process_args(&sandbox, &worker, &args, std::time::Duration::from_secs(30));
+    let bytes = std::fs::read(&output).unwrap_or_default();
+    let metadata = std::fs::symlink_metadata(&output).ok();
+    let valid = metadata
+        .as_ref()
+        .is_some_and(|value| value.file_type().is_file() && value.len() <= OUTPUT_LIMIT as u64);
+    let _ = std::fs::remove_dir_all(&sandbox);
+    result?;
+    if !valid || bytes.len() > OUTPUT_LIMIT {
+        return Err("Recovery worker returned an invalid or oversized result".into());
+    }
+    Ok(bytes)
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+    for entry in std::fs::read_dir(source).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        if !file_type.is_file() || file_type.is_symlink() {
+            return Err("Recovery session contains an unsupported entry".into());
+        }
+        std::fs::copy(entry.path(), destination.join(entry.file_name()))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn run_process(
     directory: &Path,
     worker: &Path,
@@ -93,12 +161,27 @@ fn run_process(
     flag: &str,
     timeout: std::time::Duration,
 ) -> Result<(), String> {
+    let args = vec![
+        flag.to_owned(),
+        input.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+    ];
+    run_process_args(directory, worker, &args, timeout)
+}
+
+fn run_process_args(
+    directory: &Path,
+    worker: &Path,
+    args: &[String],
+    timeout: std::time::Duration,
+) -> Result<(), String> {
     let command = format!(
-        "{} {} {} {}",
+        "{} {}",
         quote(worker.to_string_lossy().as_ref()),
-        quote(flag),
-        quote(input.to_string_lossy().as_ref()),
-        quote(output.to_string_lossy().as_ref())
+        args.iter()
+            .map(|value| quote(value))
+            .collect::<Vec<_>>()
+            .join(" ")
     );
     let mut command_w = wide(&command);
     let worker_w = wide(worker.to_string_lossy().as_ref());
@@ -210,7 +293,6 @@ fn run_process(
     if wait != WAIT_OBJECT_0 || exit != 0 {
         return Err(format!("Worker process failed (exit {exit})"));
     }
-    let _ = command;
     Ok(())
 }
 

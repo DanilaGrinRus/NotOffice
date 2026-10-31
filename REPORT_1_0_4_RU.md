@@ -220,4 +220,4 @@
 
 - Открытие DOCX/XLSX/XLS/CSV/DOC/TXT/RTF переведено на общий AppContainer-worker с Job Object 512 МиБ.
 - Save/clean-copy/conversion worker-процессы получили Job Object; транзакционная установка output через родителя пока не завершена.
-- Recovery пока использует обычный worker-процесс.
+- Recovery DOCX/XLSX/текста также выполняется в AppContainer; сессия копируется в sandbox, worker получает только её копию.
