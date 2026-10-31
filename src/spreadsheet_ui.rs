@@ -1732,12 +1732,15 @@ fn render_cells(
                                     .as_ref()
                                     .is_some_and(|selection| selection.column == Some(column));
                                 let header = egui::Frame::none()
-                                    .fill(if selected_column {
-                                        egui::Color32::from_rgb(205, 228, 250)
-                                    } else {
-                                        egui::Color32::from_rgb(245, 242, 235)
-                                    })
-                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(205)))
+                                    .fill(egui::Color32::from_rgb(245, 242, 235))
+                                    .stroke(egui::Stroke::new(
+                                        if selected_column { 1.5_f32 } else { 1.0_f32 },
+                                        if selected_column {
+                                            egui::Color32::from_rgb(55, 125, 190)
+                                        } else {
+                                            egui::Color32::from_gray(205)
+                                        },
+                                    ))
                                     .show(ui, |ui| {
                                         ui.set_min_size(egui::vec2(*width, 26.0 * zoom));
                                         ui.allocate_ui_with_layout(
