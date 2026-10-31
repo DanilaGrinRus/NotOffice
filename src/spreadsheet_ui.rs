@@ -29,6 +29,7 @@ pub struct SpreadsheetDocument {
     pub formula_input: String,
     pub value_input: String,
     pub value_input_id: Option<egui::Id>,
+    pub value_expanded: bool,
     pub formula_input_id: Option<egui::Id>,
     pub formula_message: Option<String>,
     /// Set by a double-click on a read-only cell; the shell opens the edit dialog.
@@ -886,6 +887,13 @@ impl SpreadsheetDocument {
                     self.set_cell_text(selected_row, selected_column, self.value_input.clone());
                     changed = true;
                 }
+                if ui
+                    .small_button("⤢")
+                    .on_hover_text(tr!("Развернуть поле значения", "Expand cell value"))
+                    .clicked()
+                {
+                    self.value_expanded = true;
+                }
             }
 
             let formula_id = egui::Id::new("workbook-formula-input");
@@ -975,6 +983,11 @@ impl SpreadsheetDocument {
                     changed |= self.paste_selected_row_or_column();
                     ui.close_menu();
                 }
+                ui.separator();
+                ui.checkbox(
+                    &mut self.freeze_top_row,
+                    tr!("Закрепить верхнюю строку", "Freeze top row"),
+                );
             });
             ui.menu_button(tr!("Столбец", "Column"), |ui| {
                 if ui.button(tr!("Добавить левее", "Insert left")).clicked() {
@@ -1001,6 +1014,11 @@ impl SpreadsheetDocument {
                     changed |= self.paste_selected_row_or_column();
                     ui.close_menu();
                 }
+                ui.separator();
+                ui.checkbox(
+                    &mut self.freeze_left_column,
+                    tr!("Закрепить левый столбец", "Freeze left column"),
+                );
             });
             ui.menu_button(tr!("Буфер", "Clipboard"), |ui| {
                 if ui.button(tr!("Копировать строку", "Copy row")).clicked() {
@@ -1072,6 +1090,46 @@ impl SpreadsheetDocument {
                 self.horizontal_offset += 160.0;
             }
         });
+
+        if self.value_expanded {
+            let mut open = true;
+            let mut apply = false;
+            let mut cancel = false;
+            egui::Window::new(tr!("Значение ячейки", "Cell value"))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .default_width(560.0)
+                .show(ui.ctx(), |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.value_input)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(10),
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("Применить", "Apply")).clicked() {
+                            apply = true;
+                        }
+                        if ui.button(tr!("Отмена", "Cancel")).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            if apply {
+                let (row, column) = self.selected_cell.unwrap_or((0, 0));
+                self.set_cell_text(row, column, self.value_input.clone());
+                changed = true;
+                open = false;
+            } else if cancel {
+                if let Some(sheet) = self.selected_sheet() {
+                    let (row, column) = self.selected_cell.unwrap_or((0, 0));
+                    self.value_input = sheet.cell_value(row, column).to_owned();
+                }
+                open = false;
+            }
+            self.value_expanded = open;
+        }
+
         changed
     }
 
@@ -1334,6 +1392,43 @@ pub fn column_name(mut column: usize) -> String {
         column = (column - 1) / 26;
     }
     name
+}
+
+fn highlighted_cell_text(text: &str, query: &str, size: f32) -> egui::WidgetText {
+    let ranges = crate::search::ranges(text, query, 256);
+    if ranges.is_empty() {
+        return egui::RichText::new(text)
+            .size(size)
+            .color(egui::Color32::BLACK)
+            .into();
+    }
+    let font = egui::FontId::proportional(size);
+    let normal = egui::TextFormat {
+        font_id: font.clone(),
+        color: egui::Color32::BLACK,
+        ..Default::default()
+    };
+    let hit = egui::TextFormat {
+        font_id: font,
+        color: egui::Color32::BLACK,
+        background: egui::Color32::from_rgb(255, 226, 120),
+        ..Default::default()
+    };
+    let mut job = egui::text::LayoutJob::default();
+    let mut cursor = 0;
+    for range in ranges {
+        if range.start > cursor {
+            job.append(&text[cursor..range.start], 0.0, normal.clone());
+        }
+        if range.end > range.start {
+            job.append(&text[range.start..range.end], 0.0, hit.clone());
+        }
+        cursor = cursor.max(range.end);
+    }
+    if cursor < text.len() {
+        job.append(&text[cursor..], 0.0, normal);
+    }
+    egui::WidgetText::LayoutJob(job)
 }
 
 fn format_display_value(value: &str, decimals: Option<u8>, separator: DecimalSeparator) -> String {
@@ -1862,9 +1957,27 @@ fn render_cells(
                                             preview_fill_value(sheet, top, left, bottom, right, target, row, column)
                                         })
                                         .unwrap_or_else(|| sheet.cell_value(row, column).to_owned());
-                                    let mut value = egui::RichText::new(format_display_value(&cell_value, search.decimals, search.decimal_separator)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
-                                    if format.bold { value = value.strong(); }
                                     let is_active = active_cell == Some((row, column));
+                                    let display_text = format_display_value(
+                                        &cell_value,
+                                        search.decimals,
+                                        search.decimal_separator,
+                                    );
+                                    let mut value: egui::WidgetText = if is_active {
+                                        egui::RichText::new(display_text)
+                                            .size(format.size as f32 * zoom)
+                                            .color(egui::Color32::BLACK)
+                                            .into()
+                                    } else {
+                                        highlighted_cell_text(
+                                            &display_text,
+                                            search.query,
+                                            format.size as f32 * zoom,
+                                        )
+                                    };
+                                    if format.bold {
+                                        value = value.strong();
+                                    }
                                     let is_target = search.target == Some((row, column));
                                     let is_match = !crate::search::ranges(sheet.cell_value(row, column), search.query, 1).is_empty();
                                     let selected_by_table = selection.as_ref().is_some_and(|selection| {
@@ -1920,6 +2033,8 @@ fn render_cells(
                                                 && column <= c1.max(c2)
                                         }) {
                                             egui::Color32::from_rgb(198, 239, 206)
+                                        } else if is_active {
+                                            egui::Color32::from_rgb(255, 252, 225)
                                         } else if let Some(color) = format.fill {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
@@ -1930,8 +2045,6 @@ fn render_cells(
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
-                                        } else if is_active {
-                                            egui::Color32::from_rgb(255, 250, 220)
                                         } else if is_match {
                                             egui::Color32::from_rgb(255, 244, 185)
                                         } else {

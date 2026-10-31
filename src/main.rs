@@ -1131,9 +1131,6 @@ impl NotOfficeApp {
             .spreadsheet
             .as_ref()
             .is_some_and(|book| focused.is_some() && book.input_id == focused);
-        if cell_editor_focused || (ctx.wants_keyboard_input() && !cell_editor_focused) {
-            return;
-        }
         let (has_row_or_column, has_range) = self
             .spreadsheet
             .as_ref()
@@ -1144,7 +1141,12 @@ impl NotOfficeApp {
                 )
             })
             .unwrap_or((false, false));
+        // A range/row/column selection owns Ctrl+C/V even if a cell editor
+        // still has keyboard focus from the previous single-cell click.
         if !(has_row_or_column || has_range) {
+            return;
+        }
+        if ctx.wants_keyboard_input() && !cell_editor_focused {
             return;
         }
         let copy_event = ctx.input(|input| {
