@@ -597,6 +597,58 @@ impl SpreadsheetDocument {
         true
     }
 
+    pub fn set_selection_fill(&mut self, fill: Option<[u8; 3]>) -> bool {
+        if self.editor.is_none() {
+            return false;
+        }
+        let Some(sheet) = self.selected_sheet() else {
+            return false;
+        };
+        const MAX_FILL_CELLS: usize = 100_000;
+        let mut cells = Vec::new();
+        if let Some(row) = self.selection.row {
+            let columns = sheet.column_count.clamp(1, 16_384);
+            for column in 0..columns {
+                cells.push((row, column));
+                if cells.len() >= MAX_FILL_CELLS {
+                    break;
+                }
+            }
+        } else if let Some(column) = self.selection.column {
+            let rows = sheet.row_count.clamp(1, 10_000);
+            for row in 0..rows {
+                cells.push((row, column));
+                if cells.len() >= MAX_FILL_CELLS {
+                    break;
+                }
+            }
+        } else if let (Some(start), Some(end)) =
+            (self.selection.range_start, self.selection.range_end)
+        {
+            let top = start.0.min(end.0);
+            let bottom = start.0.max(end.0);
+            let left = start.1.min(end.1);
+            let right = start.1.max(end.1);
+            'cells: for row in top..=bottom {
+                for column in left..=right {
+                    cells.push((row, column));
+                    if cells.len() >= MAX_FILL_CELLS {
+                        break 'cells;
+                    }
+                }
+            }
+        } else if let Some(cell) = self.selected_cell {
+            cells.push(cell);
+        }
+        if cells.is_empty() {
+            return false;
+        }
+        for (row, column) in cells {
+            self.set_cell_fill(row, column, fill);
+        }
+        true
+    }
+
     fn apply_clipboard_format(
         &mut self,
         row: usize,
@@ -867,6 +919,7 @@ impl SpreadsheetDocument {
                     egui::TextEdit::singleline(&mut self.value_input)
                         .id(value_id)
                         .desired_width(300.0)
+                        .text_color(egui::Color32::BLACK)
                         .hint_text(tr!("Значение ячейки", "Cell value"))
                         .char_limit(32767),
                 );
@@ -1065,12 +1118,12 @@ impl SpreadsheetDocument {
                     (tr!("Розовый", "Pink"), [248, 200, 210]),
                 ] {
                     if ui.button(label).clicked() {
-                        changed |= self.set_cell_fill(row, column, Some(color));
+                        changed |= self.set_selection_fill(Some(color));
                         ui.close_menu();
                     }
                 }
                 if ui.button(tr!("Без цвета", "No colour")).clicked() {
-                    changed |= self.set_cell_fill(row, column, None);
+                    changed |= self.set_selection_fill(None);
                     ui.close_menu();
                 }
             });
@@ -1335,10 +1388,10 @@ impl SpreadsheetDocument {
                     changed |= self.clear_active_cell();
                 }
                 CellAction::Color(color) => {
-                    changed |= self.set_cell_fill(row, column, Some(color));
+                    changed |= self.set_selection_fill(Some(color));
                 }
                 CellAction::ClearColor => {
-                    changed |= self.set_cell_fill(row, column, None);
+                    changed |= self.set_selection_fill(None);
                 }
             }
         }
@@ -2082,6 +2135,7 @@ fn render_cells(
                                                     ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
                                                     ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
                                                     ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(180,210,250);
+                                                    ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0_f32,egui::Color32::BLACK);
                                                     let inner_width=*width-8.0*zoom;
                                                     let inner_height=(format.size as f32*1.5).max(18.0)*zoom;
                                                     let output=ui.allocate_ui_with_layout(
@@ -2413,6 +2467,56 @@ mod tests {
         assert_eq!(document.paste_highlight, Some((0, 0, 0, 1, 1)));
         assert_eq!(document.display_value(0, 0), "2,54");
         assert_eq!(document.display_value(0, 1), "3,5");
+    }
+
+    #[test]
+    fn fill_colour_applies_to_range_row_and_column() {
+        let sheet = crate::xlsx::SpreadsheetModel {
+            sheet_name: "Data".into(),
+            cells: (0..3)
+                .flat_map(|row| {
+                    (0..3).map(move |column| crate::xlsx::SpreadsheetCell {
+                        row,
+                        column,
+                        value: format!("{row},{column}"),
+                    })
+                })
+                .collect(),
+            row_count: 3,
+            column_count: 3,
+        };
+        let mut document = super::SpreadsheetDocument::from_sheets(vec![sheet]);
+        let path = std::env::temp_dir().join("notoffice-fill-colour-test.xlsx");
+        document.editor = Some(crate::workbook_edit::WorkbookEditor::new(
+            path,
+            &document.sheets,
+        ));
+        document.selection.range_start = Some((0, 0));
+        document.selection.range_end = Some((1, 1));
+        assert!(document.set_selection_fill(Some([255, 235, 150])));
+        assert_eq!(document.formats.len(), 4);
+        document.selection = super::TableSelection {
+            row: Some(2),
+            ..Default::default()
+        };
+        assert!(document.set_selection_fill(Some([190, 235, 190])));
+        assert_eq!(document.formats.len(), 7);
+        document.selection = super::TableSelection {
+            column: Some(2),
+            ..Default::default()
+        };
+        assert!(document.set_selection_fill(Some([190, 225, 245])));
+        assert_eq!(document.formats.len(), 9);
+        document.selection = super::TableSelection {
+            range_start: Some((0, 0)),
+            range_end: Some((2, 2)),
+            ..Default::default()
+        };
+        assert!(document.set_selection_fill(None));
+        assert!(document
+            .formats
+            .values()
+            .all(|format| format.fill.is_none()));
     }
 
     #[test]
