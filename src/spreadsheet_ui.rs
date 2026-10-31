@@ -802,6 +802,27 @@ impl SpreadsheetDocument {
                     .strong(),
             )
             .on_hover_text(tr!("Активная ячейка", "Active cell"));
+            if let (Some(start), Some(end)) = (self.selection.range_start, self.selection.range_end)
+            {
+                if start != end {
+                    let top = start.0.min(end.0);
+                    let bottom = start.0.max(end.0);
+                    let left = start.1.min(end.1);
+                    let right = start.1.max(end.1);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{}{}:{}{}",
+                            column_name(left),
+                            top + 1,
+                            column_name(right),
+                            bottom + 1
+                        ))
+                        .monospace()
+                        .color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)),
+                    )
+                    .on_hover_text(tr!("Выделенный диапазон", "Selected range"));
+                }
+            }
             let key = (self.selected_sheet, row, column);
             let mut format = self
                 .editor
@@ -1644,19 +1665,6 @@ fn render_cells(
                     .size(22.0 * zoom)
                     .color(egui::Color32::BLACK),
             );
-            if let Some(selection) = selection.as_ref() {
-                if let Some(column) = selection.column {
-                    ui.label(egui::RichText::new(tfm!("Выделен столбец {}", "Column selected: {}", column_name(column))).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
-                } else if let Some(row) = selection.row {
-                    ui.label(egui::RichText::new(tfm!("Выделена строка {}", "Row selected: {}", row + 1)).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
-                } else if let (Some(start), Some(end)) = (selection.range_start, selection.range_end) {
-                    let top = start.0.min(end.0);
-                    let bottom = start.0.max(end.0);
-                    let left = start.1.min(end.1);
-                    let right = start.1.max(end.1);
-                    ui.label(egui::RichText::new(tfm!("Диапазон: {}{}:{}{}", "Range: {}{}:{}{}", column_name(left), top + 1, column_name(right), bottom + 1)).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
-                }
-            }
             ui.add_space(6.0 * zoom);
             if let Some(edit) = edit.as_mut() {
                 let pointer_over_table = ui.rect_contains_pointer(ui.max_rect());
