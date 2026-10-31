@@ -808,6 +808,102 @@ fn full_ui_workbook_literal_input_receives_typing_and_cell_selection_has_separat
 }
 
 #[test]
+fn typing_a_formula_is_one_workbook_undo_transaction() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("formula-undo.xls");
+    std::fs::write(&source, b"protected").unwrap();
+    let mut app = NotOfficeApp {
+        opened_path: Some(source),
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "Data".into(),
+                ..Default::default()
+            },
+        ])),
+        ..Default::default()
+    };
+    app.edit_workbook_copy();
+    let ctx = egui::Context::default();
+    let input = |events| egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(800.0, 600.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    for _ in 0..4 {
+        let _ = ctx.run(input(vec![]), |ctx| app.show(ctx));
+    }
+    let id = app.spreadsheet.as_ref().unwrap().input_id;
+    assert_eq!(ctx.memory(|m| m.focused()), id);
+    for character in ["=", "3", "*", "4"] {
+        let _ = ctx.run(input(vec![egui::Event::Text(character.into())]), |ctx| {
+            app.show(ctx)
+        });
+    }
+    let enter = egui::Modifiers::NONE;
+    let _ = ctx.run(
+        input(vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat: false,
+            modifiers: enter,
+        }]),
+        |ctx| app.show(ctx),
+    );
+    assert_eq!(app.workbook_undo.len(), 1);
+    assert_eq!(
+        app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(0, 0),
+        "12"
+    );
+    app.undo();
+    assert_eq!(
+        app.spreadsheet.as_ref().unwrap().sheets[0].cell_value(0, 0),
+        ""
+    );
+}
+
+#[test]
+fn range_selection_does_not_leave_an_active_working_cell() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("range-active.xls");
+    std::fs::write(&source, b"protected").unwrap();
+    let mut app = NotOfficeApp {
+        opened_path: Some(source),
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "Data".into(),
+                row_count: 2,
+                column_count: 2,
+                ..Default::default()
+            },
+        ])),
+        ..Default::default()
+    };
+    app.edit_workbook_copy();
+    {
+        let book = app.spreadsheet.as_mut().unwrap();
+        book.selected_cell = Some((0, 0));
+        book.selection.range_start = Some((0, 0));
+        book.selection.range_end = Some((0, 1));
+    }
+    let ctx = egui::Context::default();
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| app.show(ctx),
+    );
+    assert_eq!(app.spreadsheet.as_ref().unwrap().selected_cell, None);
+}
+
+#[test]
 fn inline_workbook_mouse_typing_tab_enter_and_save_reopen_keep_cell_values() {
     let folder = tempfile::tempdir().unwrap();
     let source = folder.path().join("original.xls");

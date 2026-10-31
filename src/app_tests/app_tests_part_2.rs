@@ -1041,6 +1041,7 @@ fn copy_paste_events_move_selected_range() {
         let book = app.spreadsheet.as_ref().unwrap();
         assert_eq!(book.sheets[0].cell_value(1, 0), "1");
         assert_eq!(book.sheets[0].cell_value(1, 1), "2");
+        assert_eq!(book.paste_highlight, Some((0, 1, 0, 1, 1)));
     }
 #[test]
 fn row_copy_paste_uses_key_events() {

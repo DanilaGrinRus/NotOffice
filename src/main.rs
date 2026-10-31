@@ -141,6 +141,7 @@ struct NotOfficeApp {
     redo_stack: Vec<DocumentModel>,
     workbook_undo: Vec<WorkbookSnapshot>,
     workbook_redo: Vec<WorkbookSnapshot>,
+    workbook_edit_before: Option<WorkbookSnapshot>,
     text_undo: Vec<String>,
     text_redo: Vec<String>,
     suppress_text_history: bool,
@@ -259,6 +260,7 @@ impl Default for NotOfficeApp {
             redo_stack: Vec::new(),
             workbook_undo: Vec::new(),
             workbook_redo: Vec::new(),
+            workbook_edit_before: None,
             text_undo: Vec::new(),
             text_redo: Vec::new(),
             suppress_text_history: false,
@@ -1643,6 +1645,7 @@ impl NotOfficeApp {
                 self.doc_image_widths.clear();
                 self.undo_stack.clear();
                 self.workbook_undo.clear();
+                self.workbook_edit_before = None;
                 self.workbook_redo.clear();
                 self.redo_stack.clear();
                 self.selected_fragment_id = None;
@@ -1855,6 +1858,7 @@ impl NotOfficeApp {
         self.doc_image_widths.clear();
         self.undo_stack.clear();
         self.workbook_undo.clear();
+        self.workbook_edit_before = None;
         self.workbook_redo.clear();
         self.text_undo.clear();
         self.text_redo.clear();
@@ -2008,6 +2012,7 @@ impl NotOfficeApp {
         self.doc_image_widths.clear();
         self.undo_stack.clear();
         self.workbook_undo.clear();
+        self.workbook_edit_before = None;
         self.workbook_redo.clear();
         self.text_undo.clear();
         self.text_redo.clear();
@@ -2291,6 +2296,7 @@ impl NotOfficeApp {
         self.search_scroll_requested = !self.search_query.trim().is_empty();
         self.undo_stack.clear();
         self.workbook_undo.clear();
+        self.workbook_edit_before = None;
         self.workbook_redo.clear();
         self.text_undo.clear();
         self.text_redo.clear();
@@ -2774,6 +2780,12 @@ impl NotOfficeApp {
         })
     }
 
+    fn flush_workbook_edit(&mut self) {
+        if let Some(before) = self.workbook_edit_before.take() {
+            self.record_workbook_edit(Some(before));
+        }
+    }
+
     fn record_workbook_edit(&mut self, before: Option<WorkbookSnapshot>) {
         let Some(before) = before else {
             return;
@@ -2820,6 +2832,7 @@ impl NotOfficeApp {
     }
 
     fn undo(&mut self) {
+        self.flush_workbook_edit();
         if self.docx.is_some() {
             let Some(previous) = self.undo_stack.pop() else {
                 return;
@@ -2857,6 +2870,7 @@ impl NotOfficeApp {
     }
 
     fn redo(&mut self) {
+        self.flush_workbook_edit();
         if self.docx.is_some() {
             let Some(next) = self.redo_stack.pop() else {
                 return;
@@ -4139,6 +4153,7 @@ impl NotOfficeApp {
     }
 
     fn save_workbook_to(&mut self, path: PathBuf) -> bool {
+        self.flush_workbook_edit();
         let Some(book) = self.spreadsheet.as_mut() else {
             return false;
         };
@@ -4706,6 +4721,10 @@ impl NotOfficeApp {
                 pdf.show(ui, self.zoom);
             } else if self.spreadsheet.is_some() {
                 let before_edit = self.workbook_snapshot();
+                let selected_before = self
+                    .spreadsheet
+                    .as_ref()
+                    .and_then(|book| book.selected_cell);
                 let changed = {
                     let book = self.spreadsheet.as_mut().unwrap();
                     let formats = book.formats.clone();
@@ -4728,12 +4747,35 @@ impl NotOfficeApp {
                         freeze_top_row: book.freeze_top_row,
                         freeze_left_column: book.freeze_left_column,
                         highlights: Some(&highlights),
+                        paste_highlight: book.paste_highlight.and_then(
+                            |(sheet, r1, c1, r2, c2)| {
+                                (sheet == book.selected_sheet).then_some((r1, c1, r2, c2))
+                            },
+                        ),
                     };
                     book.show_grid(ui, self.zoom, &view, self.docx_editor_generation)
                 };
+                let selection_changed_after = self
+                    .spreadsheet
+                    .as_ref()
+                    .and_then(|book| book.selected_cell)
+                    != selected_before;
                 if changed {
-                    self.record_workbook_edit(before_edit);
+                    let still_editing = self.spreadsheet.as_ref().is_some_and(|book| {
+                        book.input_id
+                            .is_some_and(|id| ui.ctx().memory(|memory| memory.has_focus(id)))
+                    });
+                    if still_editing && !selection_changed_after {
+                        if self.workbook_edit_before.is_none() {
+                            self.workbook_edit_before = before_edit;
+                        }
+                    } else {
+                        let before = self.workbook_edit_before.take().or(before_edit);
+                        self.record_workbook_edit(before);
+                    }
                     self.search_dirty = true;
+                } else if selection_changed_after && self.workbook_edit_before.is_some() {
+                    self.flush_workbook_edit();
                 }
                 if let Some((row, column, text)) = self
                     .spreadsheet

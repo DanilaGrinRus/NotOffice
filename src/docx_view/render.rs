@@ -103,7 +103,7 @@ pub(crate) fn render_paragraph(
                 hit.target == SearchTarget::DocxParagraph(paragraph_index)
                     && search::overlaps(&range, &hit.bytes)
             });
-            let response = egui::Frame::none()
+            let text_output = egui::Frame::none()
                 .fill(if *options.select_all_docx {
                     egui::Color32::from_rgb(255, 226, 170)
                 } else if active {
@@ -142,19 +142,44 @@ pub(crate) fn render_paragraph(
                         job.append(text, 0.0, text_format);
                         ui.fonts(|fonts| fonts.layout_job(job))
                     };
-                    ui.add_sized(
-                        [width, fragment_render_height(fragment, options.zoom)],
-                        egui::TextEdit::multiline(&mut fragment.text)
-                            .id(id)
-                            .cursor_at_end(false)
-                            .desired_rows(line_count)
-                            .font(font.clone())
-                            .text_color(egui::Color32::BLACK)
-                            .layouter(&mut layouter)
-                            .frame(false),
-                    )
+                    let output = ui
+                        .allocate_ui_with_layout(
+                            egui::vec2(width, fragment_render_height(fragment, options.zoom)),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(width);
+                                egui::TextEdit::multiline(&mut fragment.text)
+                                    .id(id)
+                                    .cursor_at_end(false)
+                                    .desired_rows(line_count)
+                                    .desired_width(width)
+                                    .font(font.clone())
+                                    .text_color(egui::Color32::BLACK)
+                                    .layouter(&mut layouter)
+                                    .frame(false)
+                                    .show(ui)
+                            },
+                        )
+                        .inner;
+                    if output.response.double_clicked() {
+                        if let Some(pointer) = output.response.interact_pointer_pos() {
+                            let cursor = output.galley.cursor_from_pos(pointer - output.galley_pos);
+                            let (start, end) =
+                                unicode_word_range(&fragment.text, cursor.ccursor.index);
+                            let mut state = output.state.clone();
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(start),
+                                    egui::text::CCursor::new(end),
+                                )));
+                            state.store(ui.ctx(), id);
+                        }
+                    }
+                    output
                 })
                 .inner;
+            let response = &text_output.response;
             if response.clicked() || response.gained_focus() {
                 *options.selected_fragment_id = Some(fragment.id);
                 if response.clicked() {
@@ -266,4 +291,45 @@ fn next_list_prefix(text: &str) -> Option<String> {
         return Some(format!("{}. ", current.saturating_add(1)));
     }
     None
+}
+
+fn unicode_word_range(text: &str, index: usize) -> (usize, usize) {
+    let chars = text.chars().collect::<Vec<_>>();
+    if chars.is_empty() {
+        return (0, 0);
+    }
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut target = index.min(chars.len().saturating_sub(1));
+    if !is_word(chars[target]) {
+        if target > 0 && is_word(chars[target - 1]) {
+            target -= 1;
+        } else if target + 1 < chars.len() && is_word(chars[target + 1]) {
+            target += 1;
+        } else {
+            return (index, index);
+        }
+    }
+    let mut start = target;
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = target + 1;
+    while end < chars.len() && is_word(chars[end]) {
+        end += 1;
+    }
+    (start, end)
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::unicode_word_range;
+
+    #[test]
+    fn selects_cyrillic_and_latin_words_without_sentence_punctuation() {
+        let text = "Привет, мир! Hello_world";
+        assert_eq!(unicode_word_range(text, 2), (0, 6));
+        assert_eq!(unicode_word_range(text, 8), (8, 11));
+        assert_eq!(unicode_word_range(text, 13), (13, 24));
+        assert_eq!(unicode_word_range(text, 21), (13, 24));
+    }
 }

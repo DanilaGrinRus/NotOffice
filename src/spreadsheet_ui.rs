@@ -37,6 +37,7 @@ pub struct SpreadsheetDocument {
     pub clipboard_formats: Option<Vec<Vec<Option<crate::workbook_edit::CellFormat>>>>,
     pub formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
     pub highlights: CellHighlights,
+    pub paste_highlight: Option<(usize, usize, usize, usize, usize)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,6 +147,13 @@ impl SpreadsheetDocument {
                 self.set_cell_text(row + row_offset, column + column_offset, value.clone());
             }
         }
+        self.paste_highlight = Some((
+            self.selected_sheet,
+            row,
+            column,
+            row + grid.rows.saturating_sub(1),
+            column + grid.columns.saturating_sub(1),
+        ));
         Ok((grid.rows, grid.columns))
     }
 
@@ -492,6 +500,14 @@ impl SpreadsheetDocument {
             })
             .or(self.selected_cell)
             .unwrap_or((0, 0));
+        let (highlight_rows, highlight_columns) = match &clipboard {
+            TableClipboard::Row(values) => (0, values.len().saturating_sub(1)),
+            TableClipboard::Column(values) => (values.len().saturating_sub(1), 0),
+            TableClipboard::Range(rows) => (
+                rows.len().saturating_sub(1),
+                rows.first().map(Vec::len).unwrap_or(0).saturating_sub(1),
+            ),
+        };
         match clipboard {
             TableClipboard::Row(values) => {
                 for (offset, value) in values.into_iter().enumerate() {
@@ -542,6 +558,13 @@ impl SpreadsheetDocument {
                 }
             }
         }
+        self.paste_highlight = Some((
+            self.selected_sheet,
+            row,
+            column,
+            row + highlight_rows,
+            column + highlight_columns,
+        ));
         true
     }
 
@@ -1063,6 +1086,9 @@ impl SpreadsheetDocument {
             self.selection.range_end = None;
             self.focus_pending = false;
         }
+        if ui.input(|input| input.pointer.any_click()) {
+            self.paste_highlight = None;
+        }
         let Some(sheet) = self.selected_sheet() else {
             return false;
         };
@@ -1193,13 +1219,18 @@ impl SpreadsheetDocument {
                     .unwrap_or_default();
                 self.value_input = self
                     .selected_sheet()
-                    .map(|sheet| sheet.cell_value(cell.0, cell.1).to_owned())
+                    .map(|sheet| {
+                        format_display_value(sheet.cell_value(cell.0, cell.1), self.decimal_places)
+                    })
                     .unwrap_or_default();
                 if edit.navigate.is_some() {
                     self.preview_anchor = Some(cell);
                 }
                 ui.ctx().request_repaint();
             }
+        }
+        if range_has_more_than_one_cell {
+            self.selected_cell = None;
         }
         if let (Some((row, column)), Some(action)) = (edit.context_cell, edit.context_action) {
             self.selected_cell = Some((row, column));
@@ -1289,13 +1320,11 @@ pub fn column_name(mut column: usize) -> String {
 }
 
 fn format_display_value(value: &str, decimals: Option<u8>) -> String {
-    let Some(decimals) = decimals else {
+    let normalized = value.trim().replace(',', ".");
+    let Some(number) = normalized.parse::<f64>().ok().filter(|n| n.is_finite()) else {
         return value.to_owned();
     };
-    let Some(number) = value.trim().parse::<f64>().ok().filter(|n| n.is_finite()) else {
-        return value.to_owned();
-    };
-    crate::table_formula::format_number(number, Some(decimals))
+    crate::table_formula::format_number(number, decimals).replace('.', ",")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1528,6 +1557,7 @@ pub struct SearchView<'a> {
     pub freeze_top_row: bool,
     pub freeze_left_column: bool,
     pub highlights: Option<&'a CellHighlights>,
+    pub paste_highlight: Option<(usize, usize, usize, usize)>,
 }
 
 fn preview_range(
@@ -1873,6 +1903,13 @@ fn render_cells(
                                             egui::Color32::from_rgb(174, 210, 247)
                                         } else if selected_by_table {
                                             egui::Color32::from_rgb(184, 216, 246)
+                                        } else if search.paste_highlight.is_some_and(|(r1, c1, r2, c2)| {
+                                            row >= r1.min(r2)
+                                                && row <= r1.max(r2)
+                                                && column >= c1.min(c2)
+                                                && column <= c1.max(c2)
+                                        }) {
+                                            egui::Color32::from_rgb(198, 239, 206)
                                         } else if let Some(color) = format.fill {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
@@ -1884,7 +1921,7 @@ fn render_cells(
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
                                         } else if is_active {
-                                            egui::Color32::from_rgb(211, 234, 255)
+                                            egui::Color32::from_rgb(255, 250, 220)
                                         } else if is_match {
                                             egui::Color32::from_rgb(255, 244, 185)
                                         } else {
@@ -1907,7 +1944,8 @@ fn render_cells(
                                                         ui.memory_mut(|m|m.request_focus(id));
                                                         edit.focus_used = true;
                                                     }
-                                                    let mut text=sheet.cell_value(row,column).to_owned();
+                                                    let original_text=sheet.cell_value(row,column).to_owned();
+                                                    let mut text=format_display_value(&original_text,search.decimals);
                                                     if ui.memory(|m|m.has_focus(id)) {
                                                         let reverse = ui.input(|i|i.modifiers.shift);
                                                         let modifiers = if reverse { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
@@ -1915,7 +1953,7 @@ fn render_cells(
                                                             edit.navigate = Some((row,if reverse {column.saturating_sub(1)} else {(column+1).min(16383)}));
                                                         } else if ui.input_mut(|i|i.consume_key(modifiers,egui::Key::Enter)) {
                                                             edit.navigate = Some((if reverse {row.saturating_sub(1)} else {(row+1).min(1_048_575)},column));
-                                                            edit.submit = Some((row,column,text.clone()));
+                                                            edit.submit = Some((row,column,if response.changed() {text.clone()} else {original_text.clone()}));
                                                         }
                                                     }
                                                     ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
@@ -2182,15 +2220,38 @@ mod tests {
     }
     #[test]
     fn decimal_display_is_view_only_and_non_numeric_values_are_unchanged() {
-        assert_eq!(super::format_display_value("3.14159", Some(2)), "3.14");
-        assert_eq!(super::format_display_value("3.1000", Some(2)), "3.1");
+        assert_eq!(super::format_display_value("3.14159", Some(2)), "3,14");
+        assert_eq!(super::format_display_value("3.1000", Some(2)), "3,1");
+        assert_eq!(super::format_display_value("3,14159", Some(2)), "3,14");
         assert_eq!(
             super::format_display_value("Кириллица", Some(2)),
             "Кириллица"
         );
         assert_eq!(super::format_display_value("=A1+B1", Some(2)), "=A1+B1");
-        assert_eq!(super::format_display_value("3.14159", None), "3.14159");
+        assert_eq!(super::format_display_value("3.14159", None), "3,14159");
     }
+    #[test]
+    fn pasted_range_is_highlighted_and_uses_comma_display() {
+        let path = std::env::temp_dir().join("notoffice-paste-highlight-test.xlsx");
+        let sheet = crate::xlsx::SpreadsheetModel {
+            sheet_name: "Data".into(),
+            cells: Vec::new(),
+            row_count: 0,
+            column_count: 0,
+        };
+        let mut document = super::SpreadsheetDocument::from_sheets(vec![sheet]);
+        document.editor = Some(crate::workbook_edit::WorkbookEditor::new(
+            path,
+            &document.sheets,
+        ));
+        document.selected_cell = Some((0, 0));
+        let result = document.paste_grid("2.54\t3,5\n4\t5");
+        assert_eq!(result.ok(), Some((2, 2)));
+        assert_eq!(document.paste_highlight, Some((0, 0, 0, 1, 1)));
+        assert_eq!(document.display_value(0, 0), "2,54");
+        assert_eq!(document.display_value(0, 1), "3,5");
+    }
+
     #[test]
     fn filling_two_selected_numbers_continues_the_series() {
         let sheet = crate::xlsx::SpreadsheetModel {
