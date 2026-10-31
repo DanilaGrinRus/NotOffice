@@ -196,7 +196,7 @@
 - XLSX/XLS/CSV/DOCX открываются дочерним процессом NotOffice (`--xlsx-parse-worker`, `--xls-parse-worker`, `--csv-parse-worker`, `--docx-parse-worker`) с таймаутом 30 секунд.
 - Родитель получает только сериализованную модель/изображения; падение или зависание парсера не завершает UI-процесс.
 - DOCX после изоляции модели повторно проверяет ZIP/raw package в родителе перед сохранением.
-- PDF и legacy DOC пока не изолированы; release остаётся panic=unwind.
+- PDF изолирован в AppContainer; worker получает только входной PDF и output-каталог, ограничен Job Object (256 МиБ, один процесс).
 
 - Legacy DOC также открывается дочерним процессом `--doc-parse-worker`.
 
@@ -204,7 +204,7 @@
 
 - Сохранение XLSX вынесено в `--xlsx-save-worker`: origin/saved-path/sheets/formats/formulas передаются JSON; запись и проверка выполняются дочерним процессом, после успеха книга переоткрывается worker-процессом.
 
-- PDF: проба страниц и рендер PNG выполняются дочерними процессами `--pdf-probe-worker`/`--pdf-render-worker`; родитель получает только размеры и PNG.
+- PDF: проба страниц и рендер PNG выполняются AppContainer-процессами `--pdf-probe-worker`/`--pdf-render-worker`; Job Object ограничивает память и число процессов.
 - Печать PDF в приложении использует изолированный PDF-session; тестовые API сохраняют нативный путь.
 
 - Recovery: восстановление DOCX/XLSX/текста выполняется дочерним процессом `--recovery-restore-worker`; родитель получает сериализованную модель/текст.

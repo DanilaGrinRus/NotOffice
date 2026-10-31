@@ -17,6 +17,7 @@ pub struct PdfSession {
     requests: SyncSender<usize>,
     pub responses: Receiver<PageResult>,
     temp_pdf: Option<PathBuf>,
+    _sandbox: Option<std::sync::Arc<crate::pdf_sandbox::Sandbox>>,
 }
 
 impl PdfSession {
@@ -49,58 +50,16 @@ impl PdfSession {
             {
                 return Err("Invalid or oversized PDF snapshot".into());
             }
-            let nonce = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|error| error.to_string())?
-                .as_nanos();
-            let temp_pdf = std::env::temp_dir()
-                .join(format!("notoffice-pdf-{}-{nonce}.pdf", std::process::id()));
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temp_pdf)
-                .map_err(|error| error.to_string())?;
-            use std::io::Write as _;
-            file.write_all(&bytes).map_err(|error| error.to_string())?;
-            file.sync_all().map_err(|error| error.to_string())?;
-            drop(file);
-            let sizes_path = std::env::temp_dir().join(format!(
-                "notoffice-pdf-pages-{}-{nonce}.txt",
-                std::process::id()
-            ));
-            let pages = probe_pdf(&temp_pdf, &sizes_path);
-            let _ = std::fs::remove_file(&sizes_path);
-            let pages = match pages {
-                Ok(pages) => pages,
-                Err(error) => {
-                    let _ = std::fs::remove_file(&temp_pdf);
-                    return Err(error);
-                }
-            };
+            let sandbox = std::sync::Arc::new(crate::pdf_sandbox::Sandbox::new(&bytes)?);
+            let pages = sandbox.probe()?;
             let (requests, queue) = mpsc::sync_channel(1);
             let (output, responses) = mpsc::channel();
-            let worker_pdf = temp_pdf.clone();
+            let worker = sandbox.clone();
             std::thread::Builder::new()
                 .name("pdf-isolated-reader".into())
                 .spawn(move || {
                     while let Ok(index) = queue.recv() {
-                        let nonce = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|time| time.as_nanos())
-                            .unwrap_or_default();
-                        let png_path = std::env::temp_dir().join(format!(
-                            "notoffice-pdf-page-{}-{index}-{nonce}.png",
-                            std::process::id()
-                        ));
-                        let result = render_pdf(&worker_pdf, index, &png_path).and_then(|()| {
-                            let bytes =
-                                std::fs::read(&png_path).map_err(|error| error.to_string())?;
-                            if bytes.len() > 32 * 1024 * 1024 {
-                                return Err("PDF page raster exceeds 32 MiB".into());
-                            }
-                            Ok(bytes)
-                        });
-                        let _ = std::fs::remove_file(&png_path);
+                        let result = worker.render(index);
                         if output.send((index, result)).is_err() {
                             break;
                         }
@@ -112,7 +71,8 @@ impl PdfSession {
                 pages,
                 requests,
                 responses,
-                temp_pdf: Some(temp_pdf),
+                temp_pdf: None,
+                _sandbox: Some(sandbox),
             })
         }
     }
@@ -155,6 +115,7 @@ impl PdfSession {
             requests,
             responses,
             temp_pdf: None,
+            _sandbox: None,
         })
     }
 
@@ -166,91 +127,6 @@ impl PdfSession {
             .try_send(index)
             .map_err(|error| format!("PDF render queue: {error}"))
     }
-}
-
-#[cfg(windows)]
-fn pdf_worker_command(flag: &str, input: &Path, extra: &[String]) -> std::process::Command {
-    use std::os::windows::process::CommandExt;
-    let executable = std::env::current_exe().unwrap_or_default();
-    let mut command = std::process::Command::new(executable);
-    command
-        .arg(flag)
-        .arg(input)
-        .args(extra)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(0x08000000);
-    command
-}
-
-#[cfg(windows)]
-fn wait_pdf_worker(
-    mut child: std::process::Child,
-    timeout: std::time::Duration,
-) -> Result<(), String> {
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(_)) => return Err("PDF worker process failed".into()),
-            Ok(None) if started.elapsed() < timeout => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("PDF worker process timed out".into());
-            }
-            Err(error) => {
-                let _ = child.kill();
-                return Err(format!("PDF worker process failed: {error}"));
-            }
-        }
-    }
-}
-
-#[cfg(windows)]
-fn probe_pdf(input: &Path, output: &Path) -> Result<Vec<[f32; 2]>, String> {
-    let child = pdf_worker_command(
-        "--pdf-probe-worker",
-        input,
-        &[output.to_string_lossy().into_owned()],
-    )
-    .spawn()
-    .map_err(|error| error.to_string())?;
-    wait_pdf_worker(child, std::time::Duration::from_secs(15))?;
-    let data = std::fs::read_to_string(output).map_err(|error| error.to_string())?;
-    let mut pages = Vec::new();
-    for line in data.lines() {
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        if fields.len() != 2 {
-            return Err("Invalid PDF worker page data".into());
-        }
-        let width = fields[0]
-            .parse::<f32>()
-            .map_err(|error| error.to_string())?;
-        let height = fields[1]
-            .parse::<f32>()
-            .map_err(|error| error.to_string())?;
-        pages.push([width, height]);
-    }
-    if pages.is_empty() || pages.len() > MAX_PAGES {
-        return Err("PDF worker returned an invalid page count".into());
-    }
-    Ok(pages)
-}
-
-#[cfg(windows)]
-fn render_pdf(input: &Path, index: usize, output: &Path) -> Result<(), String> {
-    let child = pdf_worker_command(
-        "--pdf-render-worker",
-        input,
-        &[index.to_string(), output.to_string_lossy().into_owned()],
-    )
-    .spawn()
-    .map_err(|error| error.to_string())?;
-    wait_pdf_worker(child, std::time::Duration::from_secs(30))
 }
 
 impl Drop for PdfSession {

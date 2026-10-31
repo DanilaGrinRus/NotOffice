@@ -14,6 +14,8 @@ pub mod i18n;
 pub mod legacy_sidecar;
 pub mod pdf;
 pub mod pdf_print;
+#[cfg(windows)]
+mod pdf_sandbox;
 pub mod preferences;
 pub mod print;
 pub mod range_paste;
