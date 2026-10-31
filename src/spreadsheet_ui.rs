@@ -1,4 +1,5 @@
 //! Read-only spreadsheet view state and egui rendering.
+use crate::preferences::DecimalSeparator;
 use crate::xlsx::SpreadsheetModel;
 use crate::{tfm, tr};
 use eframe::egui;
@@ -24,6 +25,7 @@ pub struct SpreadsheetDocument {
     pub horizontal_offset: f32,
     pub vertical_offset: f32,
     pub decimal_places: Option<u8>,
+    pub decimal_separator: DecimalSeparator,
     pub formula_input: String,
     pub value_input: String,
     pub value_input_id: Option<egui::Id>,
@@ -176,7 +178,11 @@ impl SpreadsheetDocument {
         let Some(sheet) = self.selected_sheet() else {
             return String::new();
         };
-        format_display_value(sheet.cell_value(row, column), self.decimal_places)
+        format_display_value(
+            sheet.cell_value(row, column),
+            self.decimal_places,
+            self.decimal_separator,
+        )
     }
 
     pub fn apply_formula(&mut self) -> bool {
@@ -1220,7 +1226,11 @@ impl SpreadsheetDocument {
                 self.value_input = self
                     .selected_sheet()
                     .map(|sheet| {
-                        format_display_value(sheet.cell_value(cell.0, cell.1), self.decimal_places)
+                        format_display_value(
+                            sheet.cell_value(cell.0, cell.1),
+                            self.decimal_places,
+                            self.decimal_separator,
+                        )
                     })
                     .unwrap_or_default();
                 if edit.navigate.is_some() {
@@ -1319,12 +1329,16 @@ pub fn column_name(mut column: usize) -> String {
     name
 }
 
-fn format_display_value(value: &str, decimals: Option<u8>) -> String {
+fn format_display_value(value: &str, decimals: Option<u8>, separator: DecimalSeparator) -> String {
     let normalized = value.trim().replace(',', ".");
     let Some(number) = normalized.parse::<f64>().ok().filter(|n| n.is_finite()) else {
         return value.to_owned();
     };
-    crate::table_formula::format_number(number, decimals).replace('.', ",")
+    let formatted = crate::table_formula::format_number(number, decimals);
+    match separator {
+        DecimalSeparator::Comma => formatted.replace('.', ","),
+        DecimalSeparator::Dot => formatted,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1386,10 +1400,14 @@ fn draw_frozen_panes(
             painter.text(
                 egui::pos2(viewport.left() + row_header + first_width / 2.0, y),
                 egui::Align2::CENTER_CENTER,
-                format_display_value(sheet.cell_value(row, columns.start), search.decimals)
-                    .chars()
-                    .take(20)
-                    .collect::<String>(),
+                format_display_value(
+                    sheet.cell_value(row, columns.start),
+                    search.decimals,
+                    search.decimal_separator,
+                )
+                .chars()
+                .take(20)
+                .collect::<String>(),
                 font.clone(),
                 text,
             );
@@ -1426,10 +1444,14 @@ fn draw_frozen_panes(
                         viewport.top() + header_height + row_height / 2.0,
                     ),
                     egui::Align2::CENTER_CENTER,
-                    format_display_value(sheet.cell_value(rows.start, column), search.decimals)
-                        .chars()
-                        .take(20)
-                        .collect::<String>(),
+                    format_display_value(
+                        sheet.cell_value(rows.start, column),
+                        search.decimals,
+                        search.decimal_separator,
+                    )
+                    .chars()
+                    .take(20)
+                    .collect::<String>(),
                     font.clone(),
                     text,
                 );
@@ -1558,6 +1580,7 @@ pub struct SearchView<'a> {
     pub freeze_left_column: bool,
     pub highlights: Option<&'a CellHighlights>,
     pub paste_highlight: Option<(usize, usize, usize, usize)>,
+    pub decimal_separator: DecimalSeparator,
 }
 
 fn preview_range(
@@ -1604,11 +1627,14 @@ fn render_cells(
     let zoom = zoom.clamp(0.5, 4.0);
     let body_size = 14.0 * zoom;
     let small_size = 12.0 * zoom;
+    let minimum_columns = ((ui.available_width() / (90.0 * zoom)).floor() as usize)
+        .clamp(8, 12)
+        .min(MAX_PREVIEW_COLUMNS);
     let columns = preview_range(
         sheet
             .column_count
             .max(active_cell.map(|(_, c)| c + 1).unwrap_or(0)),
-        8,
+        minimum_columns,
         MAX_PREVIEW_COLUMNS,
         search.anchor.map(|(_, column)| column),
     );
@@ -1643,7 +1669,7 @@ fn render_cells(
                         .size(small_size)
                         .color(egui::Color32::DARK_GRAY),
                 );
-                ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
+                ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals, search.decimal_separator).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
             }
             if let Some(selection) = selection.as_ref() {
                 if let Some(column) = selection.column {
@@ -1852,7 +1878,7 @@ fn render_cells(
                                             preview_fill_value(sheet, top, left, bottom, right, target, row, column)
                                         })
                                         .unwrap_or_else(|| sheet.cell_value(row, column).to_owned());
-                                    let mut value = egui::RichText::new(format_display_value(&cell_value, search.decimals)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
+                                    let mut value = egui::RichText::new(format_display_value(&cell_value, search.decimals, search.decimal_separator)).size(format.size as f32 * zoom).color(egui::Color32::BLACK);
                                     if format.bold { value = value.strong(); }
                                     let is_active = active_cell == Some((row, column));
                                     let is_target = search.target == Some((row, column));
@@ -1945,7 +1971,7 @@ fn render_cells(
                                                         edit.focus_used = true;
                                                     }
                                                     let original_text=sheet.cell_value(row,column).to_owned();
-                                                    let mut text=format_display_value(&original_text,search.decimals);
+                                                    let mut text=format_display_value(&original_text,search.decimals,search.decimal_separator);
                                                     if ui.memory(|m|m.has_focus(id)) {
                                                         let reverse = ui.input(|i|i.modifiers.shift);
                                                         let modifiers = if reverse { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
@@ -2220,15 +2246,34 @@ mod tests {
     }
     #[test]
     fn decimal_display_is_view_only_and_non_numeric_values_are_unchanged() {
-        assert_eq!(super::format_display_value("3.14159", Some(2)), "3,14");
-        assert_eq!(super::format_display_value("3.1000", Some(2)), "3,1");
-        assert_eq!(super::format_display_value("3,14159", Some(2)), "3,14");
         assert_eq!(
-            super::format_display_value("Кириллица", Some(2)),
+            super::format_display_value("3.14159", Some(2), super::DecimalSeparator::Comma),
+            "3,14"
+        );
+        assert_eq!(
+            super::format_display_value("3.1000", Some(2), super::DecimalSeparator::Comma),
+            "3,1"
+        );
+        assert_eq!(
+            super::format_display_value("3,14159", Some(2), super::DecimalSeparator::Comma),
+            "3,14"
+        );
+        assert_eq!(
+            super::format_display_value("Кириллица", Some(2), super::DecimalSeparator::Comma),
             "Кириллица"
         );
-        assert_eq!(super::format_display_value("=A1+B1", Some(2)), "=A1+B1");
-        assert_eq!(super::format_display_value("3.14159", None), "3,14159");
+        assert_eq!(
+            super::format_display_value("=A1+B1", Some(2), super::DecimalSeparator::Comma),
+            "=A1+B1"
+        );
+        assert_eq!(
+            super::format_display_value("3.14159", None, super::DecimalSeparator::Comma),
+            "3,14159"
+        );
+        assert_eq!(
+            super::format_display_value("3.14159", Some(2), super::DecimalSeparator::Dot),
+            "3.14"
+        );
     }
     #[test]
     fn pasted_range_is_highlighted_and_uses_comma_display() {

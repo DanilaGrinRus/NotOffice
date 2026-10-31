@@ -14,6 +14,29 @@ pub const MIN_VIEW_ZOOM: f32 = 0.5;
 pub const MAX_VIEW_ZOOM: f32 = 4.0;
 pub const DEFAULT_VIEW_ZOOM: f32 = 1.0;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DecimalSeparator {
+    #[default]
+    Comma,
+    Dot,
+}
+
+impl DecimalSeparator {
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Comma => "comma",
+            Self::Dot => "dot",
+        }
+    }
+
+    pub fn from_slug(value: &str) -> Self {
+        match value {
+            "dot" => Self::Dot,
+            _ => Self::Comma,
+        }
+    }
+}
+
 pub fn sanitize_zoom(zoom: f32) -> f32 {
     if zoom.is_finite() {
         zoom.clamp(MIN_VIEW_ZOOM, MAX_VIEW_ZOOM)
@@ -22,10 +45,11 @@ pub fn sanitize_zoom(zoom: f32) -> f32 {
     }
 }
 
-pub fn parse(contents: &str) -> (PageSettings, f32, Theme) {
+pub fn parse(contents: &str) -> (PageSettings, f32, Theme, DecimalSeparator) {
     let mut settings = PageSettings::default();
     let mut zoom = DEFAULT_VIEW_ZOOM;
     let mut theme = Theme::Light;
+    let mut decimal_separator = DecimalSeparator::Comma;
     for line in contents.lines() {
         if let Some((key, value)) = line.split_once('=') {
             match key.trim() {
@@ -49,28 +73,53 @@ pub fn parse(contents: &str) -> (PageSettings, f32, Theme) {
                     }
                 }
                 "theme" => theme = Theme::from_slug(value.trim()),
+                "decimal_separator" => {
+                    decimal_separator = DecimalSeparator::from_slug(value.trim())
+                }
                 _ => {}
             }
         }
     }
-    (settings.sanitized(), sanitize_zoom(zoom), theme)
+    (
+        settings.sanitized(),
+        sanitize_zoom(zoom),
+        theme,
+        decimal_separator,
+    )
 }
 
-pub fn load(path: &Path) -> (PageSettings, f32, Theme) {
+pub fn load(path: &Path) -> (PageSettings, f32, Theme, DecimalSeparator) {
     read_current(path)
         .map(|contents| parse(&contents))
-        .unwrap_or_else(|_| (PageSettings::default(), DEFAULT_VIEW_ZOOM, Theme::Light))
+        .unwrap_or_else(|_| {
+            (
+                PageSettings::default(),
+                DEFAULT_VIEW_ZOOM,
+                Theme::Light,
+                DecimalSeparator::Comma,
+            )
+        })
 }
 
-pub fn save(path: &Path, settings: PageSettings, zoom: f32, theme: Theme) -> std::io::Result<()> {
-    update_keys(path, &serialized_values(settings, zoom, theme))
+pub fn save(
+    path: &Path,
+    settings: PageSettings,
+    zoom: f32,
+    theme: Theme,
+    decimal_separator: DecimalSeparator,
+) -> std::io::Result<()> {
+    update_keys(
+        path,
+        &serialized_values(settings, zoom, theme, decimal_separator),
+    )
 }
 
 fn serialized_values(
     settings: PageSettings,
     zoom: f32,
     theme: Theme,
-) -> [(&'static str, String); 6] {
+    decimal_separator: DecimalSeparator,
+) -> [(&'static str, String); 7] {
     let settings = settings.sanitized();
     let scale = match settings.image_scale {
         ImageScale::OriginalSize => "original",
@@ -84,6 +133,7 @@ fn serialized_values(
         ("page_numbers", settings.print_page_numbers.to_string()),
         ("zoom", format!("{:.3}", sanitize_zoom(zoom))),
         ("theme", theme.slug().to_owned()),
+        ("decimal_separator", decimal_separator.slug().to_owned()),
     ]
 }
 
@@ -91,11 +141,11 @@ fn serialized_values(
 /// stale: re-read and merge under an OS lock instead of writing their snapshot.
 pub fn save_changes(
     path: &Path,
-    before: (PageSettings, f32, Theme),
-    after: (PageSettings, f32, Theme),
+    before: (PageSettings, f32, Theme, DecimalSeparator),
+    after: (PageSettings, f32, Theme, DecimalSeparator),
 ) -> std::io::Result<()> {
-    let before = serialized_values(before.0, before.1, before.2);
-    let after = serialized_values(after.0, after.1, after.2);
+    let before = serialized_values(before.0, before.1, before.2, before.3);
+    let after = serialized_values(after.0, after.1, after.2, after.3);
     let changes: Vec<_> = after
         .into_iter()
         .zip(before)
@@ -240,15 +290,20 @@ fn replace_settings(temporary: &Path, path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{load, parse, save, save_changes};
+    use super::{load, parse, save, save_changes, DecimalSeparator};
     use crate::theme::Theme;
 
     #[test]
     fn stale_window_zoom_change_does_not_reset_new_theme_or_page_settings() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("settings.txt");
-        let before = (crate::print::PageSettings::default(), 1.0, Theme::Light);
-        save(&path, before.0, before.1, before.2).unwrap();
+        let before = (
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Comma,
+        );
+        save(&path, before.0, before.1, before.2, before.3).unwrap();
         let mut first = before;
         first.0.landscape = true;
         first.2 = Theme::DarkBlue;
@@ -266,7 +321,12 @@ mod tests {
     fn each_changed_page_field_merges_without_overwriting_other_windows() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("settings.txt");
-        let before = (crate::print::PageSettings::default(), 1.0, Theme::Light);
+        let before = (
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Comma,
+        );
         let mut first = before;
         first.0.landscape = true;
         first.0.image_scale = crate::print::ImageScale::FitToWidth;
@@ -278,7 +338,7 @@ mod tests {
         let mut theme_only = before;
         theme_only.2 = Theme::Sage;
         save_changes(&path, before, theme_only).unwrap();
-        let (settings, zoom, theme) = load(&path);
+        let (settings, zoom, theme, _separator) = load(&path);
         assert!(settings.landscape);
         assert_eq!(settings.image_scale, crate::print::ImageScale::FitToWidth);
         assert_eq!(settings.margin_mm, 23.0);
@@ -290,12 +350,22 @@ mod tests {
     fn unknown_settings_survive_and_unchanged_windows_do_not_write() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("settings.txt");
-        let before = (crate::print::PageSettings::default(), 1.0, Theme::Light);
+        let before = (
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Comma,
+        );
         let contents = "# user comment\nfuture_key=keep me\ntheme=light\ntheme=light\n";
         std::fs::write(&path, contents).unwrap();
         save_changes(&path, before, before).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), contents);
-        save_changes(&path, before, (before.0, before.1, Theme::DarkBlue)).unwrap();
+        save_changes(
+            &path,
+            before,
+            (before.0, before.1, Theme::DarkBlue, before.3),
+        )
+        .unwrap();
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("# user comment\nfuture_key=keep me\n"));
         assert_eq!(contents.matches("theme=").count(), 1);
@@ -318,8 +388,13 @@ mod tests {
             .open(folder.path().join("settings.txt.lock"))
             .unwrap();
         lock.try_lock().unwrap();
-        let before = (crate::print::PageSettings::default(), 1.0, Theme::Light);
-        let after = (before.0, 2.0, before.2);
+        let before = (
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Comma,
+        );
+        let after = (before.0, 2.0, before.2, before.3);
         assert_eq!(
             save_changes(&path, before, after).unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
@@ -342,7 +417,12 @@ mod tests {
         };
         let directory = std::path::PathBuf::from(directory);
         let field = std::env::var("NOTOFFICE_PREFERENCE_TEST_FIELD").unwrap();
-        let before = (crate::print::PageSettings::default(), 1.0, Theme::Light);
+        let before = (
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Comma,
+        );
         let mut after = before;
         match field.as_str() {
             "theme" => after.2 = Theme::DarkBlue,
@@ -400,7 +480,7 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        let (settings, zoom, theme) = load(&folder.path().join("settings.txt"));
+        let (settings, zoom, theme, _separator) = load(&folder.path().join("settings.txt"));
         assert_eq!(theme, Theme::DarkBlue);
         assert_eq!(zoom, 2.5);
         assert_eq!(settings.margin_mm, 22.0);
@@ -408,8 +488,28 @@ mod tests {
     }
 
     #[test]
+    fn decimal_separator_defaults_to_comma_and_roundtrips_dot() {
+        let (_, _, _, default_separator) = parse("theme=light\n");
+        assert_eq!(default_separator, DecimalSeparator::Comma);
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("settings.txt");
+        save(
+            &path,
+            crate::print::PageSettings::default(),
+            1.0,
+            Theme::Light,
+            DecimalSeparator::Dot,
+        )
+        .unwrap();
+        assert_eq!(load(&path).3, DecimalSeparator::Dot);
+        assert!(std::fs::read_to_string(path)
+            .unwrap()
+            .contains("decimal_separator=dot"));
+    }
+
+    #[test]
     fn reads_existing_settings_format_and_ignores_unknown_keys() {
-        let (settings, zoom, theme) = parse(
+        let (settings, zoom, theme, _separator) = parse(
             "landscape=true\nmargin_mm=20\nimage_scale=fit\npage_numbers=true\nzoom=2.5\nfuture_key=value\n",
         );
 
@@ -432,8 +532,8 @@ mod tests {
             ..Default::default()
         };
         for theme in Theme::ALL {
-            save(&path, settings, 1.75, theme).unwrap();
-            let (actual_settings, zoom, actual_theme) = load(&path);
+            save(&path, settings, 1.75, theme, DecimalSeparator::Comma).unwrap();
+            let (actual_settings, zoom, actual_theme, _separator) = load(&path);
             assert_eq!(actual_settings, settings.sanitized());
             assert_eq!(zoom, 1.75);
             assert_eq!(actual_theme, theme);
@@ -445,7 +545,7 @@ mod tests {
 
     #[test]
     fn damaged_or_unknown_theme_uses_light_and_keeps_other_values() {
-        let (settings, zoom, theme) = parse(
+        let (settings, zoom, theme, _separator) = parse(
             "landscape=true\nmargin_mm=18\nimage_scale=fit\npage_numbers=true\nzoom=1.4\ntheme=no-such-theme\n",
         );
         assert!(settings.landscape);
@@ -453,13 +553,14 @@ mod tests {
         assert_eq!(zoom, 1.4);
         assert_eq!(theme, Theme::Light);
 
-        let (_, _, missing) = parse("landscape=false\nzoom=1.0\n");
+        let (_, _, missing, _separator) = parse("landscape=false\nzoom=1.0\n");
         assert_eq!(missing, Theme::Light);
     }
 
     #[test]
     fn invalid_values_fall_back_to_sanitized_defaults() {
-        let (settings, zoom, theme) = parse("margin_mm=not-a-number\nzoom=not-a-number\n");
+        let (settings, zoom, theme, _separator) =
+            parse("margin_mm=not-a-number\nzoom=not-a-number\n");
 
         assert_eq!(
             settings.margin_mm,

@@ -587,6 +587,30 @@ impl NotOfficeApp {
                     }
                 }
             });
+            ui.menu_button(
+                tr!("Разделитель чисел", "Decimal separator"),
+                |ui| {
+                    ui.set_min_width(210.0);
+                    for (separator, label) in [
+                        (
+                            liteoffice::preferences::DecimalSeparator::Comma,
+                            tr!("Запятая (2,54)", "Comma (2.54)"),
+                        ),
+                        (
+                            liteoffice::preferences::DecimalSeparator::Dot,
+                            tr!("Точка (2.54)", "Dot (2.54)"),
+                        ),
+                    ] {
+                        if ui
+                            .selectable_label(self.decimal_separator == separator, label)
+                            .clicked()
+                        {
+                            self.set_decimal_separator(separator);
+                            ui.close_menu();
+                        }
+                    }
+                },
+            );
         });
     }
 

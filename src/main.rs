@@ -14,6 +14,7 @@ use liteoffice::docx::{DocumentModel, DocxPackage};
 use liteoffice::file_ops::{self, DocumentKind};
 use liteoffice::legacy_sidecar;
 use liteoffice::preferences;
+use liteoffice::preferences::DecimalSeparator;
 use liteoffice::print;
 use liteoffice::replace;
 use liteoffice::search::{self, Hit as SearchHit, Target as SearchTarget};
@@ -192,6 +193,7 @@ struct NotOfficeApp {
     print_receiver: Option<std::sync::mpsc::Receiver<String>>,
     print_settings: print::PageSettings,
     theme: Theme,
+    decimal_separator: DecimalSeparator,
     document_view_rect: Option<egui::Rect>,
     /// Compact "Page setup" popover rendered by the redesigned shell.
     page_setup_open: bool,
@@ -214,31 +216,34 @@ fn preferences_path() -> Option<PathBuf> {
     Some(liteoffice::app_paths::file("NotOffice-settings.txt"))
 }
 
-fn load_preferences() -> (print::PageSettings, f32, Theme) {
+fn load_preferences() -> (print::PageSettings, f32, Theme, DecimalSeparator) {
     preferences_path()
         .map(|path| preferences::load(&path))
         .unwrap_or((
             print::PageSettings::default(),
             DEFAULT_VIEW_ZOOM,
             Theme::Light,
+            DecimalSeparator::Comma,
         ))
 }
 
 fn save_preferences(
-    before: (print::PageSettings, f32, Theme),
+    before: (print::PageSettings, f32, Theme, DecimalSeparator),
     settings: print::PageSettings,
     zoom: f32,
     theme: Theme,
+    decimal_separator: DecimalSeparator,
 ) -> std::io::Result<()> {
     let Some(path) = preferences_path() else {
         return Ok(());
     };
-    preferences::save_changes(&path, before, (settings, zoom, theme))
+    preferences::save_changes(&path, before, (settings, zoom, theme, decimal_separator))
 }
 
 impl Default for NotOfficeApp {
     fn default() -> Self {
-        let (saved_print_settings, saved_zoom, saved_theme) = load_preferences();
+        let (saved_print_settings, saved_zoom, saved_theme, saved_decimal_separator) =
+            load_preferences();
         Self {
             pdf: None,
             text: None,
@@ -308,6 +313,7 @@ impl Default for NotOfficeApp {
             print_receiver: None,
             print_settings: saved_print_settings,
             theme: saved_theme,
+            decimal_separator: saved_decimal_separator,
             document_view_rect: None,
             page_setup_open: false,
             search_active: true,
@@ -3447,13 +3453,53 @@ impl NotOfficeApp {
         if self.theme == theme {
             return;
         }
-        let before = (self.print_settings, self.zoom, self.theme);
+        let before = (
+            self.print_settings,
+            self.zoom,
+            self.theme,
+            self.decimal_separator,
+        );
         self.theme = theme;
-        if let Err(error) = save_preferences(before, self.print_settings, self.zoom, self.theme) {
+        if let Err(error) = save_preferences(
+            before,
+            self.print_settings,
+            self.zoom,
+            self.theme,
+            self.decimal_separator,
+        ) {
             self.status = tfm!(
                 "Тема применена, но настройка не сохранена: {error}",
                 "Theme applied, but the preference was not saved: {error}"
             );
+        }
+    }
+
+    fn set_decimal_separator(&mut self, separator: DecimalSeparator) {
+        if self.decimal_separator == separator {
+            return;
+        }
+        let before = (
+            self.print_settings,
+            self.zoom,
+            self.theme,
+            self.decimal_separator,
+        );
+        self.decimal_separator = separator;
+        if let Err(error) = save_preferences(
+            before,
+            self.print_settings,
+            self.zoom,
+            self.theme,
+            self.decimal_separator,
+        ) {
+            self.status = tfm!(
+                "Разделитель не сохранён: {error}",
+                "Decimal separator was not saved: {error}"
+            );
+        } else if separator == DecimalSeparator::Dot {
+            self.status = tr!("Разделитель чисел: точка", "Decimal separator: dot").into();
+        } else {
+            self.status = tr!("Разделитель чисел: запятая", "Decimal separator: comma").into();
         }
     }
 
@@ -4630,10 +4676,16 @@ impl NotOfficeApp {
             || (self.zoom - previous_zoom).abs() > 0.0001
         {
             if let Err(err) = save_preferences(
-                (previous_page_settings, previous_zoom, previous_theme),
+                (
+                    previous_page_settings,
+                    previous_zoom,
+                    previous_theme,
+                    self.decimal_separator,
+                ),
                 self.print_settings,
                 self.zoom,
                 self.theme,
+                self.decimal_separator,
             ) {
                 self.status = tfm!(
                     "Не удалось сохранить настройки просмотра: {err}",
@@ -4753,6 +4805,7 @@ impl NotOfficeApp {
                     .and_then(|book| book.selected_cell);
                 let changed = {
                     let book = self.spreadsheet.as_mut().unwrap();
+                    book.decimal_separator = self.decimal_separator;
                     let formats = book.formats.clone();
                     let highlights = book.highlights.clone();
                     let view = SpreadsheetSearchView {
@@ -4773,6 +4826,7 @@ impl NotOfficeApp {
                         freeze_top_row: book.freeze_top_row,
                         freeze_left_column: book.freeze_left_column,
                         highlights: Some(&highlights),
+                        decimal_separator: book.decimal_separator,
                         paste_highlight: book.paste_highlight.and_then(
                             |(sheet, r1, c1, r2, c2)| {
                                 (sheet == book.selected_sheet).then_some((r1, c1, r2, c2))
@@ -5156,7 +5210,7 @@ mod preferences_tests {
     use super::*;
     #[test]
     fn default_preferences_are_within_limits() {
-        let (settings, zoom, _theme) = load_preferences();
+        let (settings, zoom, _theme, _separator) = load_preferences();
         assert!((5.0..=40.0).contains(&settings.margin_mm));
         assert!((MIN_VIEW_ZOOM..=MAX_VIEW_ZOOM).contains(&zoom));
     }
