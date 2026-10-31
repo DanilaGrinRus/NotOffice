@@ -45,9 +45,9 @@ const FRAGMENT_MIN_WIDTH: f32 = 36.0;
 
 // View-only zoom. Never alters DOCX font sizes or printer page settings.
 // The limits are asserted by tests; the shell itself only calls sanitize_zoom.
-#[allow(dead_code)]
+#[cfg(test)]
 const MIN_VIEW_ZOOM: f32 = preferences::MIN_VIEW_ZOOM;
-#[allow(dead_code)]
+#[cfg(test)]
 const MAX_VIEW_ZOOM: f32 = preferences::MAX_VIEW_ZOOM;
 const DEFAULT_VIEW_ZOOM: f32 = preferences::DEFAULT_VIEW_ZOOM;
 

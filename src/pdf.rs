@@ -2,7 +2,7 @@
 //! form events, embedded-file extraction, shell execution or network APIs.
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 pub const MAX_PDF_BYTES: u64 = 64 * 1024 * 1024;
@@ -16,7 +16,6 @@ pub struct PdfSession {
     pub pages: Vec<[f32; 2]>,
     requests: SyncSender<usize>,
     pub responses: Receiver<PageResult>,
-    temp_pdf: Option<PathBuf>,
     _sandbox: Option<std::sync::Arc<crate::pdf_sandbox::Sandbox>>,
 }
 
@@ -71,7 +70,6 @@ impl PdfSession {
                 pages,
                 requests,
                 responses,
-                temp_pdf: None,
                 _sandbox: Some(sandbox),
             })
         }
@@ -114,7 +112,6 @@ impl PdfSession {
             pages,
             requests,
             responses,
-            temp_pdf: None,
             _sandbox: None,
         })
     }
@@ -126,14 +123,6 @@ impl PdfSession {
         self.requests
             .try_send(index)
             .map_err(|error| format!("PDF render queue: {error}"))
-    }
-}
-
-impl Drop for PdfSession {
-    fn drop(&mut self) {
-        if let Some(path) = self.temp_pdf.take() {
-            let _ = std::fs::remove_file(path);
-        }
     }
 }
 

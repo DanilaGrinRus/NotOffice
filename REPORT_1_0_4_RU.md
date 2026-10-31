@@ -224,4 +224,4 @@
 
 - DOCX save/clean-copy/legacy conversion получают модель и состояние пакета; повторный разбор исходного ZIP/XML в writer-процессе убран.
 
-- Интерактивное сохранение через GUI после staging не удалось автоматизировать; staging-код проверен сборкой, тестами и atomic-install helper.
+- UI-проверки: TXT save + backup + SourceChanged — PASS; DOCX save + backup — PASS; OneDrive save — PASS; recovery в AppContainer — PASS. XLSX UI-save и UNC-путь — NOT VERIFIED.

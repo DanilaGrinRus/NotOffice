@@ -33,7 +33,6 @@ pub struct Sandbox {
     directory: PathBuf,
     worker: PathBuf,
     input: PathBuf,
-    sid: String,
 }
 
 impl Sandbox {
@@ -69,7 +68,6 @@ impl Sandbox {
             directory,
             worker,
             input,
-            sid,
         })
     }
 
@@ -254,7 +252,6 @@ impl Sandbox {
         if wait != WAIT_OBJECT_0 || exit != 0 {
             return Err(format!("PDF worker process failed (exit {exit})"));
         }
-        let _ = &self.sid;
         Ok(())
     }
 }
