@@ -1017,10 +1017,6 @@ impl SpreadsheetDocument {
                     changed |= self.paste_selected_row_or_column();
                     ui.close_menu();
                 }
-                if ui.button(tr!("Вставить диапазон", "Paste range")).clicked() {
-                    self.range_paste_requested = true;
-                    ui.close_menu();
-                }
             });
             ui.menu_button(tr!("Цвет", "Colour"), |ui| {
                 for (label, color) in [
@@ -1038,16 +1034,6 @@ impl SpreadsheetDocument {
                     changed |= self.set_cell_fill(row, column, None);
                     ui.close_menu();
                 }
-            });
-            ui.menu_button(tr!("Вид", "View"), |ui| {
-                ui.checkbox(
-                    &mut self.freeze_top_row,
-                    tr!("Закрепить верхнюю строку", "Freeze top row"),
-                );
-                ui.checkbox(
-                    &mut self.freeze_left_column,
-                    tr!("Закрепить левый столбец", "Freeze left column"),
-                );
             });
             ui.separator();
             if ui
@@ -1658,19 +1644,6 @@ fn render_cells(
                     .size(22.0 * zoom)
                     .color(egui::Color32::BLACK),
             );
-            ui.label(
-                egui::RichText::new(if search.editable { tr!("Щёлкните ячейку и вводите. Shift+клик — диапазон; синий маркер — заполнение; Shift+колесо — сдвиг.", "Click a cell and type. Shift+click: range; blue handle: fill; Shift+wheel: pan.") } else { tr!("Просмотр таблицы — только чтение. Shift+клик — диапазон; Shift+колесо — сдвиг.", "Spreadsheet preview — read-only. Shift+click: range; Shift+wheel: pan.") })
-                    .size(small_size)
-                    .color(egui::Color32::DARK_GRAY),
-            );
-            if let Some((row, column)) = active_cell {
-                ui.label(
-                    egui::RichText::new(tfm!("Активная ячейка: {}{}", "Active cell: {}{}", column_name(column), row + 1))
-                        .size(small_size)
-                        .color(egui::Color32::DARK_GRAY),
-                );
-                ui.label(egui::RichText::new(format_display_value(sheet.cell_value(row, column), search.decimals, search.decimal_separator).chars().take(2048).collect::<String>()).color(egui::Color32::BLACK));
-            }
             if let Some(selection) = selection.as_ref() {
                 if let Some(column) = selection.column {
                     ui.label(egui::RichText::new(tfm!("Выделен столбец {}", "Column selected: {}", column_name(column))).size(small_size).color(egui::Color32::from_rgb(0x2B, 0x5F, 0x8A)));
@@ -1985,12 +1958,34 @@ fn render_cells(
                                                     ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
                                                     ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
                                                     ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(180,210,250);
-                                                    let response=ui.add_sized(
-                                                        [*width-8.0*zoom,(format.size as f32*1.5).max(18.0)*zoom],
-                                                        egui::TextEdit::singleline(&mut text).id(id)
-                                                            .font(egui::FontId::proportional(format.size as f32*zoom))
-                                                            .text_color(egui::Color32::BLACK).char_limit(32767)
-                                                    );
+                                                    let inner_width=*width-8.0*zoom;
+                                                    let inner_height=(format.size as f32*1.5).max(18.0)*zoom;
+                                                    let output=ui.allocate_ui_with_layout(
+                                                        egui::vec2(inner_width,inner_height),
+                                                        egui::Layout::top_down(egui::Align::Min),
+                                                        |ui| {
+                                                            ui.set_width(inner_width);
+                                                            egui::TextEdit::singleline(&mut text).id(id)
+                                                                .font(egui::FontId::proportional(format.size as f32*zoom))
+                                                                .text_color(egui::Color32::BLACK)
+                                                                .desired_width(inner_width)
+                                                                .char_limit(32767)
+                                                                .show(ui)
+                                                        },
+                                                    ).inner;
+                                                    if output.response.double_clicked() {
+                                                        if let Some(pointer)=output.response.interact_pointer_pos() {
+                                                            let cursor=output.galley.cursor_from_pos(pointer-output.galley_pos);
+                                                            let (start,end)=crate::text_document::TextDocument::unicode_word_range(&text,cursor.ccursor.index);
+                                                            let mut state=output.state.clone();
+                                                            state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                                                                egui::text::CCursor::new(start),
+                                                                egui::text::CCursor::new(end),
+                                                            )));
+                                                            state.store(ui.ctx(),id);
+                                                        }
+                                                    }
+                                                    let response=output.response;
                                                     edit.input_id=Some(id);
                                                     edit.input_rect=Some(response.rect);
                                                     if response.gained_focus() {
@@ -2003,7 +1998,6 @@ fn render_cells(
                                                         )));
                                                         state.store(ui.ctx(), id);
                                                     }
-                                                    if edit.focus {response.scroll_to_me(None);}
                                                     if response.changed() {edit.changes.push((row,column,text));}
                                                     return response;
                                                 }

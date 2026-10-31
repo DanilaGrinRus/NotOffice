@@ -70,6 +70,33 @@ impl TextDocument {
             saved_text: String::new(),
         }
     }
+    pub fn unicode_word_range(text: &str, index: usize) -> (usize, usize) {
+        let chars = text.chars().collect::<Vec<_>>();
+        if chars.is_empty() {
+            return (0, 0);
+        }
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut target = index.min(chars.len().saturating_sub(1));
+        if !is_word(chars[target]) {
+            if target > 0 && is_word(chars[target - 1]) {
+                target -= 1;
+            } else if target + 1 < chars.len() && is_word(chars[target + 1]) {
+                target += 1;
+            } else {
+                return (index, index);
+            }
+        }
+        let mut start = target;
+        while start > 0 && is_word(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = target + 1;
+        while end < chars.len() && is_word(chars[end]) {
+            end += 1;
+        }
+        (start, end)
+    }
+
     pub fn from_isolated(kind: TextKind, text: String, path: &Path) -> Result<Self, DocxError> {
         let fingerprint = source_fingerprint(path)?;
         Ok(Self {

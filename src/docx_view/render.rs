@@ -165,7 +165,10 @@ pub(crate) fn render_paragraph(
                         if let Some(pointer) = output.response.interact_pointer_pos() {
                             let cursor = output.galley.cursor_from_pos(pointer - output.galley_pos);
                             let (start, end) =
-                                unicode_word_range(&fragment.text, cursor.ccursor.index);
+                                liteoffice::text_document::TextDocument::unicode_word_range(
+                                    &fragment.text,
+                                    cursor.ccursor.index,
+                                );
                             let mut state = output.state.clone();
                             state
                                 .cursor
@@ -293,43 +296,16 @@ fn next_list_prefix(text: &str) -> Option<String> {
     None
 }
 
-pub(crate) fn unicode_word_range(text: &str, index: usize) -> (usize, usize) {
-    let chars = text.chars().collect::<Vec<_>>();
-    if chars.is_empty() {
-        return (0, 0);
-    }
-    let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    let mut target = index.min(chars.len().saturating_sub(1));
-    if !is_word(chars[target]) {
-        if target > 0 && is_word(chars[target - 1]) {
-            target -= 1;
-        } else if target + 1 < chars.len() && is_word(chars[target + 1]) {
-            target += 1;
-        } else {
-            return (index, index);
-        }
-    }
-    let mut start = target;
-    while start > 0 && is_word(chars[start - 1]) {
-        start -= 1;
-    }
-    let mut end = target + 1;
-    while end < chars.len() && is_word(chars[end]) {
-        end += 1;
-    }
-    (start, end)
-}
-
 #[cfg(test)]
 mod word_tests {
-    use super::unicode_word_range;
+    use liteoffice::text_document::TextDocument;
 
     #[test]
     fn selects_cyrillic_and_latin_words_without_sentence_punctuation() {
         let text = "Привет, мир! Hello_world";
-        assert_eq!(unicode_word_range(text, 2), (0, 6));
-        assert_eq!(unicode_word_range(text, 8), (8, 11));
-        assert_eq!(unicode_word_range(text, 13), (13, 24));
-        assert_eq!(unicode_word_range(text, 21), (13, 24));
+        assert_eq!(TextDocument::unicode_word_range(text, 2), (0, 6));
+        assert_eq!(TextDocument::unicode_word_range(text, 8), (8, 11));
+        assert_eq!(TextDocument::unicode_word_range(text, 13), (13, 24));
+        assert_eq!(TextDocument::unicode_word_range(text, 21), (13, 24));
     }
 }

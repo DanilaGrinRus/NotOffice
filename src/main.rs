@@ -1131,7 +1131,7 @@ impl NotOfficeApp {
             .spreadsheet
             .as_ref()
             .is_some_and(|book| focused.is_some() && book.input_id == focused);
-        if ctx.wants_keyboard_input() && !cell_editor_focused {
+        if cell_editor_focused || (ctx.wants_keyboard_input() && !cell_editor_focused) {
             return;
         }
         let (has_row_or_column, has_range) = self
@@ -3236,6 +3236,8 @@ impl NotOfficeApp {
             }
         } else if let Some(package) = &self.docx {
             blocks = docx_print_blocks(&package.model, &package.images, self.print_settings);
+        } else if let Some(book) = &self.spreadsheet {
+            blocks = spreadsheet_print_blocks(book, self.print_settings);
         } else if let Some(text) = self.plain_text() {
             if text.is_empty() {
                 blocks.push(print::PrintBlock::Text(String::new()));
@@ -4779,10 +4781,11 @@ impl NotOfficeApp {
                             if let Some(pointer) = output.response.interact_pointer_pos() {
                                 let cursor =
                                     output.galley.cursor_from_pos(pointer - output.galley_pos);
-                                let (start, end) = crate::docx_view::unicode_word_range(
-                                    &document.text,
-                                    cursor.ccursor.index,
-                                );
+                                let (start, end) =
+                                    liteoffice::text_document::TextDocument::unicode_word_range(
+                                        &document.text,
+                                        cursor.ccursor.index,
+                                    );
                                 let mut state = output.state.clone();
                                 state
                                     .cursor
