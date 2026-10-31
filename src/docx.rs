@@ -433,6 +433,14 @@ impl DocxPackage {
     /// Rebuild the package beside the destination, validate its edited XML,
     /// then replace the destination.  If an existing destination is replaced,
     /// its `.bak` copy is created first.
+    pub fn destination_is_source(&self, destination: &Path) -> Result<bool, DocxError> {
+        paths_refer_to_same_file(&self.source, destination)
+    }
+
+    pub fn source_changed(&self) -> Result<bool, DocxError> {
+        Ok(source_fingerprint(&self.source)? != self.source_fingerprint)
+    }
+
     pub fn save_as(&self, destination: impl AsRef<Path>) -> Result<(), DocxError> {
         let destination = destination.as_ref();
         let replaces_source = paths_refer_to_same_file(&self.source, destination)?;
@@ -876,7 +884,7 @@ fn available_backup_path(destination: &Path) -> std::io::Result<PathBuf> {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn replace_destination(temp_path: &Path, destination: &Path) -> std::io::Result<()> {
+pub fn replace_destination(temp_path: &Path, destination: &Path) -> std::io::Result<()> {
     if destination.exists() {
         fs::copy(destination, available_backup_path(destination)?)?;
     }
@@ -888,7 +896,7 @@ pub(crate) fn replace_destination(temp_path: &Path, destination: &Path) -> std::
 /// the requested backup, so there is never a point where a successful save has
 /// deleted the old document before the new package is in place.
 #[cfg(windows)]
-pub(crate) fn replace_destination(temp_path: &Path, destination: &Path) -> std::io::Result<()> {
+pub fn replace_destination(temp_path: &Path, destination: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
 

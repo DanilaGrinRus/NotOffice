@@ -313,6 +313,22 @@ impl Default for NotOfficeApp {
     }
 }
 
+fn staging_path(destination: &Path) -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
+    let file_name = destination
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("document");
+    let (stem, extension) = file_name.rsplit_once('.').unwrap_or((file_name, "tmp"));
+    destination.with_file_name(format!(
+        ".{stem}.notoffice-tmp-{}-{nonce}.{extension}",
+        std::process::id()
+    ))
+}
+
 impl NotOfficeApp {
     fn blank_text() -> Self {
         Self {
@@ -3538,8 +3554,19 @@ impl NotOfficeApp {
             let Some(data) = data else {
                 return;
             };
-            match clean_copy_isolated(&source, &destination, data) {
+            let temporary = staging_path(&destination);
+            match clean_copy_isolated(&source, &temporary, data) {
                 Ok(()) => {
+                    if let Err(error) =
+                        liteoffice::docx::replace_destination(&temporary, &destination)
+                    {
+                        let _ = std::fs::remove_file(&temporary);
+                        self.status = tfm!(
+                            "Копия создана, но не установлена: {error}",
+                            "Copy was created but could not be installed: {error}"
+                        );
+                        return;
+                    }
                     self.status = tfm!(
                         "Копия без активного содержимого создана: {}",
                         "Passive-only copy created: {}",
@@ -3548,6 +3575,7 @@ impl NotOfficeApp {
                     self.recovery_notice.clear();
                 }
                 Err(error) => {
+                    let _ = std::fs::remove_file(&temporary);
                     self.status = tfm!("Копия не создана: {error}", "Clean copy failed: {error}");
                 }
             }
@@ -3899,8 +3927,6 @@ impl NotOfficeApp {
             .into();
             return false;
         }
-        // A recovered session must never save into its own disposable storage.
-        // Resolve the existing parent to catch relative paths/junction aliases.
         if let Some(root) = &self.recovery_root {
             if path
                 .parent()
@@ -3922,8 +3948,22 @@ impl NotOfficeApp {
             && source
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+        let staging = isolated.then(|| staging_path(&path));
+        if isolated {
+            let replaces_source = package.destination_is_source(&path).unwrap_or(true);
+            if replaces_source && package.source_changed().unwrap_or(true) {
+                self.conflict_destination = Some(path);
+                self.status = tr!(
+                    "Документ изменён на диске: запись заблокирована; правки сохранены",
+                    "Document changed on disk: overwrite blocked; edits kept"
+                )
+                .into();
+                return false;
+            }
+        }
+        let write_path = staging.as_deref().unwrap_or(&path);
         let result = if isolated {
-            save_docx_isolated(&source, &path, &model)
+            save_docx_isolated(&source, write_path, &model)
         } else {
             self.docx
                 .as_mut()
@@ -3933,6 +3973,31 @@ impl NotOfficeApp {
         };
         match result {
             Ok(()) => {
+                if let Some(temporary) = &staging {
+                    let changed = self
+                        .docx
+                        .as_ref()
+                        .and_then(|package| package.source_changed().ok())
+                        .unwrap_or(true);
+                    if changed {
+                        let _ = std::fs::remove_file(temporary);
+                        self.conflict_destination = Some(path);
+                        self.status = tr!(
+                            "Документ изменён на диске: запись заблокирована; правки сохранены",
+                            "Document changed on disk: overwrite blocked; edits kept"
+                        )
+                        .into();
+                        return false;
+                    }
+                    if let Err(error) = liteoffice::docx::replace_destination(temporary, &path) {
+                        let _ = std::fs::remove_file(temporary);
+                        self.status = tfm!(
+                            "Не удалось установить сохранённый документ: {error}",
+                            "Could not install the saved document: {error}"
+                        );
+                        return false;
+                    }
+                }
                 if isolated {
                     match open_docx_isolated(&path) {
                         Ok(reloaded) => self.docx = Some(reloaded),
@@ -3975,11 +4040,17 @@ impl NotOfficeApp {
             Err(error)
                 if error.contains("changed on disk") || error.contains("changed outside") =>
             {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.conflict_destination = Some(path.clone());
                 self.status = tfm!("Конфликт сохранения: {} изменён на диске. Несохранённые правки сохранены; перезагрузите, сохраните копию или отмените.", "Save conflict: {} changed on disk. Your unsaved edits are kept; reload, save a copy, or cancel.", path.display());
                 false
             }
             Err(error) => {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.status = tfm!(
                     "Не удалось сохранить {}; правки сохранены: {error}",
                     "Save failed for {}; unsaved edits were kept: {error}",
@@ -4080,11 +4151,33 @@ impl NotOfficeApp {
         let formats = book.formats.clone();
         let formulas = book.formulas.clone();
         let isolated = !parser_isolation_disabled();
+        let staging = isolated.then(|| staging_path(&path));
+        if isolated {
+            if editor.destination_is_origin(&path).unwrap_or(true) {
+                self.status = tr!(
+                    "Сохранение отклонено: исходная книга защищена; выберите другое имя",
+                    "Save rejected: the original workbook is protected; choose another name"
+                )
+                .into();
+                return false;
+            }
+            let replaces_saved = editor.destination_is_saved(&path).unwrap_or(true);
+            if replaces_saved && editor.saved_changed().unwrap_or(true) {
+                self.conflict_destination = Some(path);
+                self.status = tr!(
+                    "Книга изменена на диске: запись заблокирована; правки сохранены",
+                    "Workbook changed on disk: overwrite blocked; edits kept"
+                )
+                .into();
+                return false;
+            }
+        }
+        let write_path = staging.as_deref().unwrap_or(&path);
         let result = if isolated {
             save_xlsx_isolated(
                 &origin,
                 saved_path.as_deref(),
-                &path,
+                write_path,
                 &sheets,
                 &formats,
                 &formulas,
@@ -4104,6 +4197,32 @@ impl NotOfficeApp {
         };
         match result {
             Ok(()) => {
+                if let Some(temporary) = &staging {
+                    let changed = self
+                        .spreadsheet
+                        .as_ref()
+                        .and_then(|book| book.editor.as_ref())
+                        .and_then(|editor| editor.saved_changed().ok())
+                        .unwrap_or(true);
+                    if changed {
+                        let _ = std::fs::remove_file(temporary);
+                        self.conflict_destination = Some(path);
+                        self.status = tr!(
+                            "Книга изменена на диске: запись заблокирована; правки сохранены",
+                            "Workbook changed on disk: overwrite blocked; edits kept"
+                        )
+                        .into();
+                        return false;
+                    }
+                    if let Err(error) = liteoffice::docx::replace_destination(temporary, &path) {
+                        let _ = std::fs::remove_file(temporary);
+                        self.status = tfm!(
+                            "Не удалось установить сохранённую книгу: {error}",
+                            "Could not install the saved workbook: {error}"
+                        );
+                        return false;
+                    }
+                }
                 if isolated {
                     match open_xlsx_isolated(&path) {
                         Ok(package) => {
@@ -4158,6 +4277,9 @@ impl NotOfficeApp {
                     || error.contains("changed outside")
                     || error.contains("SourceChanged") =>
             {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.conflict_destination = Some(path);
                 self.status = tr!(
                     "Книга изменена на диске: запись заблокирована; правки сохранены",
@@ -4167,6 +4289,9 @@ impl NotOfficeApp {
                 false
             }
             Err(error) => {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.status = tfm!(
                     "Не удалось сохранить книгу; правки сохранены: {error}",
                     "Workbook save failed; edits kept: {error}"
@@ -4197,8 +4322,30 @@ impl NotOfficeApp {
         let text = document.text.clone();
         let source = document.path().map(Path::to_path_buf);
         let isolated = !parser_isolation_disabled();
+        let staging = isolated.then(|| staging_path(&path));
+        if isolated {
+            if document.destination_is_protected(&path).unwrap_or(true) {
+                self.status = tr!(
+                    "Сохранение отклонено: исходный файл защищён; выберите другое имя",
+                    "Save rejected: the original file is protected; choose another name"
+                )
+                .into();
+                return false;
+            }
+            let replaces_source = document.destination_is_source(&path).unwrap_or(true);
+            if replaces_source && document.source_changed().unwrap_or(true) {
+                self.conflict_destination = Some(path);
+                self.status = tr!(
+                    "Текст изменён на диске: запись заблокирована; правки сохранены",
+                    "Text changed on disk: overwrite blocked; edits kept"
+                )
+                .into();
+                return false;
+            }
+        }
+        let write_path = staging.as_deref().unwrap_or(&path);
         let result = if isolated {
-            save_text_isolated(&path, kind, &text, source.as_deref())
+            save_text_isolated(write_path, kind, &text, source.as_deref())
         } else {
             self.text
                 .as_mut()
@@ -4208,6 +4355,31 @@ impl NotOfficeApp {
         };
         match result {
             Ok(()) => {
+                if let Some(temporary) = &staging {
+                    let changed = self
+                        .text
+                        .as_ref()
+                        .and_then(|document| document.source_changed().ok())
+                        .unwrap_or(true);
+                    if changed {
+                        let _ = std::fs::remove_file(temporary);
+                        self.conflict_destination = Some(path);
+                        self.status = tr!(
+                            "Текст изменён на диске: запись заблокирована; правки сохранены",
+                            "Text changed on disk: overwrite blocked; edits kept"
+                        )
+                        .into();
+                        return false;
+                    }
+                    if let Err(error) = liteoffice::docx::replace_destination(temporary, &path) {
+                        let _ = std::fs::remove_file(temporary);
+                        self.status = tfm!(
+                            "Не удалось установить сохранённый текст: {error}",
+                            "Could not install the saved text: {error}"
+                        );
+                        return false;
+                    }
+                }
                 if isolated {
                     match open_text_isolated(&path) {
                         Ok(document) => {
@@ -4245,6 +4417,9 @@ impl NotOfficeApp {
                     || error.contains("changed outside")
                     || error.contains("SourceChanged") =>
             {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.conflict_destination = Some(path);
                 self.status = tr!(
                     "Текст изменён на диске: запись заблокирована; правки сохранены",
@@ -4254,6 +4429,9 @@ impl NotOfficeApp {
                 false
             }
             Err(error) => {
+                if let Some(temporary) = &staging {
+                    let _ = std::fs::remove_file(temporary);
+                }
                 self.status = tfm!(
                     "Не удалось сохранить текст; правки сохранены: {error}",
                     "Text save failed; edits kept: {error}"

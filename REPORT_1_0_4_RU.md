@@ -219,5 +219,7 @@
 - Основной release теперь собран с `panic = "abort"`; таймауты и падения worker-процессов не завершают UI.
 
 - Открытие DOCX/XLSX/XLS/CSV/DOC/TXT/RTF переведено на общий AppContainer-worker с Job Object 512 МиБ.
-- Save/clean-copy/conversion worker-процессы получили Job Object; транзакционная установка output через родителя пока не завершена.
+- Save DOCX/XLSX/text и clean-copy: worker пишет в staging-файл, родитель проверяет и атомарно устанавливает его с backup.
 - Recovery DOCX/XLSX/текста также выполняется в AppContainer; сессия копируется в sandbox, worker получает только её копию.
+
+- DOCX writer по-прежнему открывает исходный пакет в worker-процессе; полный model-only вход для DOCX/clean-copy/conversion ещё не завершён.

@@ -83,6 +83,25 @@ impl WorkbookEditor {
             || self.saved_formats != self.formats
             || self.saved_formulas != self.formulas
     }
+    pub fn destination_is_saved(&self, destination: &Path) -> Result<bool, DocxError> {
+        match self.saved_path.as_deref() {
+            Some(saved) => paths_refer_to_same_file(saved, destination),
+            None => Ok(false),
+        }
+    }
+
+    pub fn destination_is_origin(&self, destination: &Path) -> Result<bool, DocxError> {
+        paths_refer_to_same_file(&self.origin, destination)
+    }
+
+    pub fn saved_changed(&self) -> Result<bool, DocxError> {
+        let (Some(path), Some(fingerprint)) = (self.saved_path.as_ref(), self.fingerprint.as_ref())
+        else {
+            return Ok(false);
+        };
+        Ok(source_fingerprint(path)? != *fingerprint)
+    }
+
     pub fn save(&mut self, path: &Path, sheets: &[SpreadsheetModel]) -> Result<(), DocxError> {
         if !path
             .extension()

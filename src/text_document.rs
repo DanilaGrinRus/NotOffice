@@ -111,6 +111,29 @@ impl TextDocument {
             fingerprint: Some(before),
         })
     }
+    pub fn destination_is_source(&self, destination: &Path) -> Result<bool, DocxError> {
+        let source = self.protected_origin.as_ref().or(self.path.as_ref());
+        match source {
+            Some(source) => paths_refer_to_same_file(source, destination),
+            None => Ok(false),
+        }
+    }
+
+    pub fn destination_is_protected(&self, destination: &Path) -> Result<bool, DocxError> {
+        match self.protected_origin.as_ref() {
+            Some(origin) => paths_refer_to_same_file(origin, destination),
+            None => Ok(false),
+        }
+    }
+
+    pub fn source_changed(&self) -> Result<bool, DocxError> {
+        let (Some(path), Some(fingerprint)) = (self.path.as_ref(), self.fingerprint.as_ref())
+        else {
+            return Ok(false);
+        };
+        Ok(source_fingerprint(path)? != *fingerprint)
+    }
+
     pub fn save(&mut self, path: &Path) -> Result<(), DocxError> {
         let kind = TextKind::of(path)?;
         if let Some(origin) = &self.protected_origin {
