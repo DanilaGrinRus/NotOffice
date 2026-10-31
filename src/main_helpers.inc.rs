@@ -385,6 +385,12 @@ fn spreadsheet_print_blocks(
             sheet.sheet_name,
             page + 1
         )));
+        let mut header = Vec::with_capacity(max_column + 1);
+        header.push(String::new());
+        for column in 0..max_column {
+            header.push(spreadsheet_column_name(column).to_owned());
+        }
+        blocks.push(print::PrintBlock::TableRow(header));
         for row in start..end {
             let mut values = Vec::with_capacity(max_column);
             for column in 0..max_column {

@@ -530,7 +530,7 @@ fn unified_find_ctrl_f_focus_enter_f3_escape_and_modal_guard() {
 }
 
 #[test]
-fn unified_find_switches_sheets_and_exposes_far_cell_without_editing_workbook() {
+fn unified_find_stays_on_the_selected_sheet_and_exposes_far_cell() {
     use liteoffice::xlsx::{SpreadsheetCell, SpreadsheetModel};
     let sheets = vec![
         SpreadsheetModel {
@@ -560,7 +560,17 @@ fn unified_find_switches_sheets_and_exposes_far_cell_without_editing_workbook() 
         ..Default::default()
     };
     app.refresh_search();
-    assert_eq!(app.search_results.hits.len(), 2);
+    assert_eq!(app.search_results.hits.len(), 1);
+    app.navigate_search(false);
+    let book = app.spreadsheet.as_ref().unwrap();
+    assert_eq!(book.selected_sheet, 0);
+    assert_eq!(book.selected_cell, Some((0, 0)));
+    assert_eq!(book.preview_anchor, Some((0, 0)));
+
+    // Switch to the second sheet: the same query must search only that sheet.
+    app.spreadsheet.as_mut().unwrap().selected_sheet = 1;
+    app.refresh_search();
+    assert_eq!(app.search_results.hits.len(), 1);
     app.navigate_search(false);
     let book = app.spreadsheet.as_ref().unwrap();
     assert_eq!(book.selected_sheet, 1);
@@ -576,7 +586,10 @@ fn unified_find_switches_sheets_and_exposes_far_cell_without_editing_workbook() 
         "cached results must not request scrolling every frame"
     );
     app.navigate_search(false);
-    assert_eq!(app.spreadsheet.as_ref().unwrap().selected_sheet, 0);
+    assert_eq!(app.spreadsheet.as_ref().unwrap().selected_sheet, 1);
+    app.spreadsheet.as_mut().unwrap().selected_sheet = 0;
+    app.refresh_search();
+    assert_eq!(app.search_results.hits.len(), 1);
     app.search_query = "Missing".into();
     app.refresh_search();
     assert!(app.search_results.hits.is_empty());

@@ -150,6 +150,7 @@ struct NotOfficeApp {
     current_match: usize,
     search_results: search::Results,
     search_cached_query: String,
+    search_cached_sheet: Option<usize>,
     search_dirty: bool,
     search_scroll_requested: bool,
     search_focus_requested: bool,
@@ -273,6 +274,7 @@ impl Default for NotOfficeApp {
             current_match: 0,
             search_results: search::Results::default(),
             search_cached_query: String::new(),
+            search_cached_sheet: None,
             search_dirty: true,
             search_scroll_requested: false,
             search_focus_requested: false,
@@ -347,7 +349,11 @@ impl NotOfficeApp {
     }
     fn refresh_search(&mut self) {
         let query_changed = self.search_query != self.search_cached_query;
-        if !self.search_dirty && !query_changed {
+        let sheet_changed = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| self.search_cached_sheet != Some(book.selected_sheet));
+        if !self.search_dirty && !query_changed && !sheet_changed {
             return;
         }
         self.search_results = if let Some(document) = &self.text {
@@ -357,10 +363,17 @@ impl NotOfficeApp {
         } else if let Some(package) = &self.legacy_doc {
             search::legacy(&package.paragraphs, &self.search_query)
         } else if let Some(book) = &self.spreadsheet {
-            search::sheets(&book.sheets, &self.search_query)
+            let selected = book.selected_sheet;
+            let mut results = search::sheets(&book.sheets, &self.search_query);
+            results.hits.retain(|hit| match hit.target {
+                SearchTarget::Cell { sheet, .. } => sheet == selected,
+                _ => true,
+            });
+            results
         } else {
             search::Results::default()
         };
+        self.search_cached_sheet = self.spreadsheet.as_ref().map(|book| book.selected_sheet);
         if query_changed {
             self.current_match = 0;
         }

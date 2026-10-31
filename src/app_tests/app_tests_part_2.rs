@@ -961,7 +961,7 @@ fn spreadsheet_pdf_export_paginates_and_writes_a_valid_pdf() {
             .iter()
             .filter(|block| matches!(block, print::PrintBlock::TableRow(_)))
             .count(),
-        60
+        62
     );
     let manifest = print::spool_manifest(&blocks, settings).unwrap();
     let output = folder.path().join("workbook.pdf");
@@ -972,6 +972,53 @@ fn spreadsheet_pdf_export_paginates_and_writes_a_valid_pdf() {
     let bytes = std::fs::read(&output).unwrap();
     assert!(bytes.starts_with(b"%PDF-"));
     assert!(bytes.len() > 1000);
+}
+
+#[test]
+fn spreadsheet_search_is_limited_to_the_selected_sheet() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("search-sheets.xlsx");
+    std::fs::write(&source, b"protected").unwrap();
+    let mut app = NotOfficeApp {
+        opened_path: Some(source),
+        spreadsheet: Some(SpreadsheetDocument::from_sheets(vec![
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "First".into(),
+                cells: vec![liteoffice::xlsx::SpreadsheetCell {
+                    row: 0,
+                    column: 0,
+                    value: "needle".into(),
+                }],
+                row_count: 1,
+                column_count: 1,
+            },
+            liteoffice::xlsx::SpreadsheetModel {
+                sheet_name: "Second".into(),
+                cells: vec![liteoffice::xlsx::SpreadsheetCell {
+                    row: 0,
+                    column: 0,
+                    value: "needle".into(),
+                }],
+                row_count: 1,
+                column_count: 1,
+            },
+        ])),
+        ..Default::default()
+    };
+    app.search_query = "needle".into();
+    app.refresh_search();
+    assert_eq!(app.search_results.hits.len(), 1);
+    assert!(matches!(
+        app.search_results.hits[0].target,
+        liteoffice::search::Target::Cell { sheet: 0, .. }
+    ));
+    app.spreadsheet.as_mut().unwrap().selected_sheet = 1;
+    app.refresh_search();
+    assert_eq!(app.search_results.hits.len(), 1);
+    assert!(matches!(
+        app.search_results.hits[0].target,
+        liteoffice::search::Target::Cell { sheet: 1, .. }
+    ));
 }
 
 #[test]

@@ -1975,7 +1975,7 @@ fn render_cells(
                                             format.size as f32 * zoom,
                                         )
                                     };
-                                    if format.bold {
+                                    if format.bold || is_active {
                                         value = value.strong();
                                     }
                                     let is_target = search.target == Some((row, column));
