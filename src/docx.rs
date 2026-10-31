@@ -312,6 +312,40 @@ impl DocxPackage {
         })
     }
 
+    pub fn worker_parts(&self) -> (&[u8], &[u8], bool) {
+        (
+            &self.original_package,
+            &self.original_document_xml,
+            self.imported_legacy,
+        )
+    }
+
+    pub fn from_worker_parts(
+        source: PathBuf,
+        original_package: Vec<u8>,
+        original_document_xml: Vec<u8>,
+        model: DocumentModel,
+        imported_legacy: bool,
+    ) -> Result<Self, DocxError> {
+        if original_package.len() as u64 > MAX_DOCX_PACKAGE_BYTES
+            || original_document_xml.len() as u64 > MAX_DOCX_PACKAGE_BYTES
+        {
+            return Err(DocxError::ResourceLimit(
+                "worker package state exceeds the input limit".into(),
+            ));
+        }
+        let source_fingerprint = source_fingerprint(&source)?;
+        Ok(Self {
+            source,
+            imported_legacy,
+            source_fingerprint,
+            original_document_xml,
+            original_package,
+            model,
+            images: Vec::new(),
+        })
+    }
+
     pub fn from_isolated_model(
         source: PathBuf,
         model: DocumentModel,

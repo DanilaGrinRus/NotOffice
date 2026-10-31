@@ -3549,6 +3549,7 @@ impl NotOfficeApp {
             } else {
                 self.docx.as_ref().map(|package| CleanCopyData::Docx {
                     model: package.model.clone(),
+                    images: package.images.clone(),
                 })
             };
             let Some(data) = data else {
@@ -3942,7 +3943,6 @@ impl NotOfficeApp {
             return false;
         };
         let source = package.source_path().to_path_buf();
-        let model = package.model.clone();
         let replaced_existing_file = path.exists();
         let isolated = !parser_isolation_disabled()
             && source
@@ -3963,7 +3963,7 @@ impl NotOfficeApp {
         }
         let write_path = staging.as_deref().unwrap_or(&path);
         let result = if isolated {
-            save_docx_isolated(&source, write_path, &model)
+            save_docx_isolated(package, write_path)
         } else {
             self.docx
                 .as_mut()

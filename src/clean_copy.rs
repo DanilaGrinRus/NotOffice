@@ -65,6 +65,15 @@ pub fn clean_docx(
     package: &DocxPackage,
     destination: &Path,
 ) -> Result<CleanCopyReport, DocxError> {
+    clean_docx_parts(source, &package.model, &package.images, destination)
+}
+
+pub fn clean_docx_parts(
+    source: &Path,
+    model: &DocumentModel,
+    images: &[DocxImage],
+    destination: &Path,
+) -> Result<CleanCopyReport, DocxError> {
     if !destination
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
@@ -80,7 +89,7 @@ pub fn clean_docx(
     }
 
     let before = source_fingerprint(source)?;
-    let (parts, report) = build_clean_parts(&package.model, &package.images)?;
+    let (parts, report) = build_clean_parts(model, images)?;
     let total = parts
         .iter()
         .map(|(name, bytes)| name.len() + bytes.len())
@@ -102,7 +111,7 @@ pub fn clean_docx(
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        validate_clean_package(&temp, &package.model, report.images)?;
+        validate_clean_package(&temp, model, report.images)?;
         if source_fingerprint(source)? != before {
             return Err(DocxError::SourceChanged);
         }

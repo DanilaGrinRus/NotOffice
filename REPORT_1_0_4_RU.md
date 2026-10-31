@@ -222,4 +222,6 @@
 - Save DOCX/XLSX/text и clean-copy: worker пишет в staging-файл, родитель проверяет и атомарно устанавливает его с backup.
 - Recovery DOCX/XLSX/текста также выполняется в AppContainer; сессия копируется в sandbox, worker получает только её копию.
 
-- DOCX writer по-прежнему открывает исходный пакет в worker-процессе; полный model-only вход для DOCX/clean-copy/conversion ещё не завершён.
+- DOCX save/clean-copy/legacy conversion получают модель и состояние пакета; повторный разбор исходного ZIP/XML в writer-процессе убран.
+
+- Интерактивное сохранение через GUI после staging не удалось автоматизировать; staging-код проверен сборкой, тестами и atomic-install helper.

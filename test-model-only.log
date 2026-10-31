@@ -1,0 +1,453 @@
+   Compiling cfg-if v1.0.5
+   Compiling windows-link v0.2.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling once_cell v1.21.4
+   Compiling scopeguard v1.2.0
+   Compiling simd-adler32 v0.3.10
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling adler2 v2.0.1
+   Compiling utf8_iter v1.0.4
+   Compiling zerofrom v0.1.8
+   Compiling bytemuck v1.25.2
+   Compiling bitflags v2.13.2
+   Compiling crc32fast v1.5.3
+   Compiling windows-targets v0.48.5
+   Compiling icu_normalizer_data v2.4.0
+   Compiling icu_properties_data v2.4.0
+   Compiling zlib-rs v0.6.8
+   Compiling yoke v0.8.4
+   Compiling windows-sys v0.48.0
+   Compiling miniz_oxide v0.9.1
+   Compiling accesskit v0.12.3
+   Compiling ttf-parser v0.25.1
+   Compiling parking_lot_core v0.9.12
+   Compiling zerocopy v0.8.63
+   Compiling emath v0.28.1
+   Compiling lock_api v0.4.14
+   Compiling raw-window-handle v0.6.2
+   Compiling raw-window-handle v0.5.2
+   Compiling memchr v2.8.3
+   Compiling zerovec v0.11.9
+   Compiling zerotrie v0.2.5
+   Compiling ab_glyph_rasterizer v0.1.10
+   Compiling windows-result v0.4.1
+   Compiling ecolor v0.28.1
+   Compiling parking_lot v0.12.5
+   Compiling windows-strings v0.5.1
+   Compiling cursor-icon v1.2.0
+   Compiling nohash-hasher v0.2.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling percent-encoding v2.3.2
+   Compiling smol_str v0.2.2
+   Compiling tinystr v0.8.5
+   Compiling potential_utf v0.1.6
+   Compiling windows-core v0.62.2
+   Compiling form_urlencoded v1.2.2
+   Compiling accesskit_consumer v0.16.1
+   Compiling windows v0.48.0
+   Compiling icu_collections v2.4.0
+   Compiling icu_locale_core v2.4.0
+   Compiling windows-sys v0.61.2
+   Compiling bumpalo v3.20.3
+   Compiling equivalent v1.0.3
+   Compiling error-code v3.4.0
+   Compiling static_assertions v1.1.0
+   Compiling hashbrown v0.17.1
+   Compiling core_detect v1.0.0
+   Compiling simdutf8 v0.1.5
+   Compiling zopfli v0.8.4
+   Compiling clipboard-win v5.4.1
+   Compiling owned_ttf_parser v0.25.1
+   Compiling glutin_wgl_sys v0.5.0
+   Compiling encoding_rs v0.8.42
+   Compiling ab_glyph v0.2.32
+   Compiling num-traits v0.2.19
+   Compiling serde_core v1.0.229
+   Compiling fdeflate v0.3.7
+   Compiling icu_provider v2.4.0
+   Compiling indexmap v2.14.2
+   Compiling miniz_oxide v0.8.9
+   Compiling icu_properties v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling libloading v0.8.9
+   Compiling zune-core v0.5.3
+   Compiling pxfm v0.1.30
+   Compiling memoffset v0.9.1
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling zune-jpeg v0.5.15
+   Compiling windows-threading v0.2.1
+   Compiling typed-path v0.12.4
+   Compiling arboard v3.7.0
+   Compiling flate2 v1.1.10
+   Compiling byteorder-lite v0.1.0
+   Compiling glow v0.13.1
+   Compiling debug_unsafe v0.1.4
+   Compiling web-time v0.2.4
+   Compiling png v0.18.1
+   Compiling atoi_simd v0.18.1
+   Compiling windows-future v0.3.2
+   Compiling quick-xml v0.42.0
+   Compiling ahash v0.8.12
+   Compiling idna_adapter v1.2.2
+   Compiling winit v0.29.15
+   Compiling idna v1.1.0
+   Compiling epaint v0.28.1
+   Compiling glutin_egl_sys v0.6.0
+   Compiling zip v9.0.5
+   Compiling url v2.5.8
+   Compiling glutin v0.31.3
+   Compiling serde v1.0.229
+   Compiling codepage v0.1.3
+   Compiling windows-targets v0.52.6
+   Compiling zmij v1.0.23
+   Compiling winapi v0.3.9
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling webbrowser v1.2.5
+   Compiling egui v0.28.1
+   Compiling moxcms v0.8.1
+   Compiling web-time v1.1.0
+   Compiling byteorder v1.5.0
+   Compiling itoa v1.0.18
+   Compiling fnv v1.0.7
+   Compiling glutin-winit v0.4.2
+   Compiling uuid v1.28.0
+   Compiling fast-float2 v0.2.4
+   Compiling serde_json v1.0.154
+   Compiling windows v0.62.2
+   Compiling windows-sys v0.59.0
+   Compiling rfd v0.14.1
+   Compiling zip v2.6.1
+   Compiling calamine v0.37.0
+   Compiling cfb v0.15.0
+   Compiling quick-xml v0.37.5
+   Compiling getrandom v0.4.3
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling egui_glow v0.28.1
+   Compiling image v0.25.10
+   Compiling accesskit_windows v0.15.1
+   Compiling accesskit_winit v0.16.1
+   Compiling egui-winit v0.28.1
+   Compiling eframe v0.28.1
+   Compiling notoffice v1.0.4 (C:\NotOffice\NotOffice-1.0.4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.00s
+     Running unittests src\lib.rs (target\debug\deps\liteoffice-37c3a97d71a8290f.exe)
+
+running 161 tests
+test a4::tests::a4_is_210_by_297_mm ... ok
+test doc::officeart_tests::malformed_escher_does_not_claim_matches ... ok
+test clipboard::tests::documented_limit_is_bounded ... ok
+test clipboard::tests::unsupported_platform_error_is_explicit ... ok
+test doc::tests::ignores_corrupted_plcfspa ... ok
+test doc::tests::extracts_only_complete_png_and_deduplicates ... ok
+test clean_copy::tests::clean_docx_skips_non_raster_payloads ... ok
+test doc::tests::ignores_non_url_fields_without_losing_results ... ok
+test clean_copy::tests::clean_docx_renders_table_structure ... ok
+test doc::tests::non_http_hyperlinks_are_not_clickable ... ok
+test doc::officeart_tests::links_pib_to_embedded_blip_when_bytes_match ... ok
+test doc::tests::nested_field_results_are_retained ... ok
+test doc::tests::parses_plcfspa_main_story_anchor_positions ... ok
+test doc::tests::rejects_incomplete_jpeg ... ok
+test doc::tests::reads_piece_table_from_fib ... ok
+test doc::tests::removes_field_instruction_but_keeps_visible_hyperlink_and_url ... ok
+test doc::tests::splits_paragraphs_preserving_order ... ok
+test docx::tests::image_relationships_cannot_escape_the_docx_package ... ok
+test docx::tests::inserts_missing_run_properties_without_touching_unicode ... ok
+test docx::tests::deleted_text_nodes_keep_their_identity_after_save_and_reopen ... ok
+test docx::tests::empty_text_nodes_can_be_edited_without_shifting_later_fragment_ids ... ok
+test docx::tests::bulk_font_change_including_table_runs_roundtrips ... ok
+test docx::tests::keeps_centered_paragraph_alignment ... ok
+test docx::tests::keeps_explicit_page_breaks_for_display ... ok
+test docx::tests::keeps_table_cell_boundaries_for_display ... ok
+test docx::tests::line_breaks_are_parsed_rewritten_and_round_trip_as_text ... ok
+test docx::tests::newly_inserted_edge_spaces_are_preserved_for_word_readers ... ok
+test docx::tests::reads_explicit_run_size_and_updates_it ... ok
+test docx::tests::parses_fragments_in_xml_order ... ok
+test docx::tests::package_file_size_limit_is_checked_before_zip_parsing ... ok
+test docx::tests::rewrites_text_without_damaging_attributes ... ok
+test docx::tests::reads_table_grid_column_widths ... ok
+test docx::tests::run_formatting_is_parsed_edited_and_round_tripped ... ok
+test clean_copy::tests::clean_copy_refuses_the_source_alias_and_leaves_it_unchanged ... ok
+test csv_import::tests::tsv_and_windows_1251_are_supported ... ok
+test csv_import::tests::quoted_commas_newlines_and_semicolon_detection_are_preserved ... ok
+test docx::tests::external_change_cancels_overwrite_and_keeps_original_bytes ... ok
+test file_ops::tests::recognizes_supported_extensions_case_insensitively_on_unicode_paths ... ok
+test docx::tests::unsafe_package_paths_are_rejected_before_copying ... ok
+test docx::tests::opens_supported_embedded_raster_for_printing ... ok
+test docx::tests::missing_relationships_do_not_block_a_safe_roundtrip ... ok
+test file_ops::tests::rejects_unsupported_and_extensionless_paths_with_actionable_errors ... ok
+test docx::tests::corrupt_zip_and_invalid_document_xml_are_rejected ... ok
+test clean_copy::tests::clean_workbook_keeps_values_as_text_not_formulas ... ok
+test file_ops::tests::script_macro_enabled_and_double_executable_extensions_are_not_openable ... ok
+test html_export::tests::document_html_escapes_text_and_exports_tables ... ok
+test docx::tests::write_error_leaves_the_source_document_untouched ... ok
+test html_export::tests::spreadsheet_html_exports_visible_grid ... ok
+test legacy_sidecar::tests::round_trips_the_existing_layout_v1_format ... ok
+test docx::tests::safe_save_keeps_package_parts_and_writes_backup ... ok
+test clean_copy::tests::clean_docx_refuses_a_hard_link_to_the_source ... ok
+test pdf_print::tests::ranges_and_scales_are_validated_without_printing ... ok
+test preferences::tests::damaged_or_unknown_theme_uses_light_and_keeps_other_values ... ok
+test preferences::tests::invalid_values_fall_back_to_sanitized_defaults ... ok
+test docx::tests::roundtrip_edit_preserves_unknown_parts_and_malformed_relationships ... ok
+test preferences::tests::preference_process_worker ... ok
+test preferences::tests::reads_existing_settings_format_and_ignores_unknown_keys ... ok
+test docx::tests::save_does_not_overwrite_an_existing_backup ... ok
+test pdf::tests::raster_rounding_never_exceeds_the_decoder_or_cache_dimension_limit ... ok
+test docx::tests::save_copy_still_works_after_the_original_file_is_removed ... ok
+test print::tests::landscape_and_margins_are_consistent ... ok
+test legacy_sidecar::tests::rejects_a_sidecar_that_does_not_match_its_source_document ... ok
+test print::tests::manifest_preserves_explicit_page_breaks ... ok
+test print::tests::manifest_preserves_utf8_and_order ... ok
+test pdf::tests::reject_wrong_header_oversized_files_and_invalid_raster_geometry ... ok
+test print::tests::manifest_rejects_ambiguous_page_boundaries_and_malformed_records ... ok
+test print::tests::manifest_roundtrip_preserves_order_unicode_images_and_page_numbers ... ok
+test print::tests::powershell_encoding_is_utf16le ... ok
+test print::tests::print_helper_result_distinguishes_cancel_from_submission ... ok
+test print::tests::print_image_scaling_mode_and_page_numbers_are_manifested ... ok
+test docx::tests::saving_a_copy_after_an_external_change_preserves_the_opened_package_parts ... ok
+test preferences::tests::unknown_settings_survive_and_unchanged_windows_do_not_write ... ok
+test range_paste::tests::crlf_lf_empty_cells_and_trailing_delimiters_are_rectangular ... ok
+test print::tests::sized_image_contract_rejects_nonfinite_or_unbounded_geometry ... ok
+test range_paste::tests::leading_equals_is_data_not_a_formula ... ok
+test print::tests::reject_oversized_images ... ok
+test range_paste::tests::quoted_cells_keep_tabs_and_newlines_as_text ... ok
+test docx::tests::repeated_saves_of_our_own_changes_do_not_look_like_an_external_conflict ... ok
+test range_paste::tests::utf8_and_empty_grid_failures_are_deliberate ... ok
+test preferences::tests::each_changed_page_field_merges_without_overwriting_other_windows ... ok
+test clean_copy::tests::clean_docx_drops_active_parts_and_keeps_text_and_image ... ok
+test recent::tests::recent_paths_are_bounded_to_eight_entries ... ok
+test recent::tests::recent_paths_are_deduplicated_and_keep_the_newest_entry_first ... ok
+test print::tests::empty_page_and_large_multipage_job_have_deterministic_contract ... ok
+test range_paste::tests::oversized_ranges_are_rejected_before_filling ... ok
+test preferences::tests::stale_window_zoom_change_does_not_reset_new_theme_or_page_settings ... ok
+test clean_copy::tests::clean_docx_ignores_unexpected_parts_in_the_source_package ... ok
+test recovery::tests::checkpoint_accepts_a_line_break_that_reopens_as_text ... ok
+test recovery::tests::isolated_crash_worker ... ok
+test recovery::tests::isolated_text_crash_worker ... ok
+test recovery::tests::checkpoint_survives_restart_without_changing_original_or_package_path ... ok
+test recovery::tests::failed_checkpoint_preserves_previous_snapshot_and_explicit_discard_clears_it ... ok
+test recovery::tests::damaged_workbook_snapshot_falls_back_to_previous_generation ... ok
+test preferences::tests::every_theme_roundtrips_without_changing_other_settings ... ok
+test recovery::tests::malformed_only_session_is_retained_until_explicit_rejection ... ok
+test recovery::tests::stale_lease_only_sessions_are_pruned_and_closed_sessions_can_be_cleared ... ok
+test recovery::tests::damaged_newest_and_interrupted_temp_fall_back_without_deleting_evidence ... ok
+test replace::tests::current_replaces_only_chosen_occurrence_and_all_crosses_runs_and_table_cells ... ok
+test recovery::tests::corrupted_unknown_package_part_also_triggers_fallback ... ok
+test replace::tests::empty_replacement_and_special_characters_roundtrip_without_losing_runs ... ok
+test replace::tests::identical_replacement_missing_match_and_stale_index_are_noops ... ok
+test replace::tests::unicode_expansion_and_fragment_boundaries_remain_valid_utf8 ... ok
+test search::tests::cyrillic_occurrences_have_original_utf8_ranges_and_no_empty_matches ... ok
+test search::tests::docx_search_crosses_runs_and_counts_each_occurrence_without_mutating_model ... ok
+test recovery::tests::workbook_checkpoint_roundtrips_values_and_formats_after_restart ... ok
+test recovery::tests::checkpoint_after_fallback_keeps_a_valid_predecessor_not_the_broken_generation ... ok
+test search::tests::next_previous_wrap_and_handle_empty_or_stale_indices ... ok
+test replace::tests::capped_find_cannot_silently_become_partial_replace_all ... ok
+test search::tests::spreadsheets_search_every_sheet_and_far_cells_in_coordinate_order ... ok
+test search::tests::unicode_lowercase_expansion_and_width_changes_map_back_to_safe_boundaries ... ok
+test spreadsheet_ui::tests::far_find_target_is_visible_without_allocating_an_unbounded_grid ... ok
+test search::tests::legacy_search_counts_occurrences_and_caps_large_results_explicitly ... ok
+test spreadsheet_ui::tests::column_names_continue_after_z ... ok
+test spreadsheet_ui::tests::decimal_display_is_view_only_and_non_numeric_values_are_unchanged ... ok
+test spreadsheet_ui::tests::filling_two_selected_numbers_continues_the_series ... ok
+test startup::tests::accepts_a_path_after_the_argument_separator ... ok
+test startup::tests::accepts_a_unicode_path_with_spaces_as_one_argument ... ok
+test startup::tests::new_blank_window_command_has_no_document_argument ... ok
+test startup::tests::new_text_window_passes_only_the_blank_text_flag ... ok
+test startup::tests::new_window_command_keeps_a_unicode_path_as_one_os_argument ... ok
+test startup::tests::rejects_multiple_document_paths_instead_of_silently_ignoring_one ... ok
+test recovery::tests::text_generations_validate_checksum_fallback_empty_text_and_failed_writes ... ok
+test startup::tests::ten_independent_window_commands_have_no_shared_document_arguments ... ok
+test table_formula::tests::cell_references_and_division ... ok
+test table_formula::tests::cell_references_map_to_zero_based_coordinates ... ok
+test table_formula::tests::errors_are_explicit_and_do_not_return_partial_values ... ok
+test table_formula::tests::precedence_parentheses_and_decimal_comma ... ok
+test table_formula::tests::simple_formula_syntax_is_not_value_dependent ... ok
+test table_formula::tests::full_precision_format_keeps_a_tiny_fraction ... ok
+test table_formula::tests::inserting_row_shifts_formula_references ... ok
+test text_document::tests::export_manual_text_fixtures ... ignored, explicit export of new TXT/MD/RTF manual fixtures
+test text_document::tests::basic_rtf_roundtrips_cyrillic_surrogates_tabs_and_literal_controls ... ok
+test text_document::tests::plain_utf8_utf16_markdown_are_literal_and_invalid_binary_is_rejected ... ok
+test text_document::tests::rtf_ignores_objects_instructions_and_unknown_destinations_without_running_them ... ok
+test replace::tests::replacement_agrees_with_flat_ranges_at_every_utf8_run_split_including_empty_runs ... ok
+test recovery::tests::independent_windows_keep_two_generations_each_and_live_sessions_are_not_offered ... ok
+test workbook_edit::tests::typed_numbers_bools_and_dates_export_and_roundtrip ... ok
+test xls::tests::dates_respect_1900_and_1904_epochs_and_preserve_time ... ok
+test xls::tests::durations_and_invalid_serials_do_not_become_calendar_dates ... ok
+test workbook_edit::tests::explicit_formula_and_fill_roundtrip ... ok
+test xls::tests::preserves_absolute_xls_cell_coordinates ... ok
+test xlsx::tests::cell_references_are_bounded_to_excel_limits ... ok
+test text_document::tests::text_save_as_backups_and_conflict_keep_unsaved_edits ... ok
+test xls::ods_tests::opens_a_minimal_ods_sheet_read_only ... ok
+test replace::tests::invalid_or_expansive_replacement_is_rejected_before_mutation ... ok
+test xlsx::tests::invalid_unicode_color_is_ignored_without_panicking ... ok
+test xlsx::tests::formulas_use_cached_values_and_external_or_escaping_worksheet_targets_are_rejected ... ok
+test recovery::tests::text_sessions_are_isolated_and_restore_literal_rtf_without_interpretation ... ok
+test text_document::tests::rtf_original_and_alias_are_protected_and_basic_copy_is_valid ... ok
+test workbook_edit::tests::xlsx_values_fonts_empty_cells_and_empty_sheets_roundtrip_without_active_parts ... ok
+test xlsx::tests::date_styles_become_iso_dates_while_numbers_and_booleans_keep_types ... ok
+test xlsx::tests::opens_first_sheet_with_shared_strings_and_numbers ... ok
+test workbook_edit::tests::original_alias_conflicts_failures_and_backups_keep_workbook_data ... ok
+test recovery::tests::forced_process_termination_releases_lock_and_preserves_checkpoint ... ok
+test recovery::tests::forced_text_process_termination_recovers_txt_md_rtf_and_untitled ... ok
+test preferences::tests::four_independent_processes_merge_their_changes ... ok
+test html_export::tests::sparse_far_cell_html_export_is_bounded ... ok
+test preferences::tests::busy_lock_and_invalid_settings_leave_previous_file_untouched ... ok
+test xlsx::tests::rejects_an_xlsx_part_that_expands_beyond_the_budget ... ok
+test print::tests::failed_windows_helper_leaves_no_owned_temporary_files ... ok
+test print::tests::windows_launcher_runs_large_unicode_helper_with_a_short_command_and_cleans_up ... ok
+
+test result: ok. 160 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+     Running unittests src\main.rs (target\debug\deps\notoffice-546923f1ae153b59.exe)
+
+running 92 tests
+test app_tests::ctrl_s_requests_docx_save_but_not_toolbar_text_save ... ok
+test app_tests::ctrl_wheel_zoom_does_not_handle_plain_scroll_or_input_widgets ... ok
+test app_tests::ctrl_wheel_zoom_values_remain_independent_per_window ... ok
+test app_tests::ctrl_wheel_zoom_uses_factor_direction_and_existing_bounds ... ok
+test app_tests::docx_print_blocks_preserve_explicit_preview_page_breaks ... ok
+test app_tests::docx_print_blocks_preserve_table_borders_contract_and_embedded_images ... ok
+test app_tests::docx_page_plan_uses_selected_margins_and_orientation ... ok
+test app_tests::explicit_page_break_starts_a_new_preview_page ... ok
+test app_tests::docx_page_plan_covers_long_multilingual_document_without_gaps_or_duplicates ... ok
+test app_tests::converted_doc_undo_then_redo_restores_the_edit ... ok
+test app_tests::docx_fixture_preview_and_print_keep_the_same_image_page_and_size_at_all_zooms ... ok
+test app_tests::clean_text_close_after_undo_does_not_offer_a_stale_checkpoint ... ok
+test app_tests::copy_paste_events_move_selected_range ... ok
+test app_tests::explicit_conflict_reload_adopts_external_changes_and_cancels_pending_close ... ok
+test app_tests::failed_conflict_reload_keeps_my_unsaved_model_and_choice_dialog ... ok
+test app_tests::delete_all_is_blocked_for_toolbar_fields_and_modal_prompts ... ok
+test app_tests::failed_second_docx_open_keeps_existing_model_and_shows_error ... ok
+test app_tests::explicit_discard_can_close_without_writing_unsaved_text ... ok
+test app_tests::ctrl_h_replace_enter_escape_and_toolbar_undo_focus_are_guarded ... ok
+test app_tests::failed_save_keeps_unsaved_document_and_does_not_approve_close_or_switch_source ... ok
+test app_tests::crash_restart_restores_dirty_copy_without_overwriting_source_and_save_clears_checkpoint ... ok
+test app_tests::failed_save_and_cancel_keep_recovery_but_explicit_discard_close_removes_it ... ok
+test app_tests::failed_pdf_open_keeps_unsaved_docx_and_pdf_replacement_uses_existing_dirty_guard ... ok
+test app_tests::local_legacy_doc_preview_image_regression ... ignored, read-only check of a local DOC selected by LITEOFFICE_DOC_PREVIEW_TEST_INPUT
+test app_tests::failed_replacement_keeps_recovery_and_successful_discard_open_retires_it ... ok
+test app_tests::find_always_shows_replacement_input_without_inserting_a_tab ... ok
+test app_tests::delete_after_ctrl_a_clears_all_docx_text_as_one_undo_without_removing_images_or_tables ... ok
+test app_tests::blank_txt_is_ready_for_immediate_typing_save_and_unsaved_close_guard ... ok
+test app_tests::native_fragment_delete_removes_selected_text_and_character_at_cursor ... ok
+test app_tests::opening_second_docx_replaces_active_model_and_records_each_stage ... ok
+test app_tests::pagination_keeps_an_empty_document_on_one_page ... ok
+test app_tests::pagination_starts_a_new_page_when_content_does_not_fit ... ok
+test app_tests::find_tab_moves_directly_to_replace_and_shift_tab_returns_without_editing_docx ... ok
+test app_tests::full_ui_new_docx_focus_does_not_deliver_typing_to_previous_find_field ... ok
+test app_tests::full_ui_independent_windows_type_without_a_click_and_do_not_share_editor_state ... ok
+test app_tests::preview_plan_is_rebuilt_for_the_replacement_document ... ok
+test app_tests::opening_another_document_waits_when_current_docx_is_dirty ... ok
+test app_tests::full_ui_autofocus_is_one_shot_and_respects_find_replace_and_modal_choices ... ok
+test app_tests::opening_a_broken_replacement_after_discard_does_not_destroy_the_current_edits ... ok
+test app_tests::paste_range_is_one_undo_values_only_and_protects_read_only_source ... ok
+test app_tests::normal_save_refreshes_baseline_and_can_be_repeated_without_a_dialog ... ok
+test app_tests::postpone_and_invalid_recovery_keep_files_until_explicit_rejection ... ok
+test app_tests::pdf_opens_read_only_and_switching_back_to_docx_retires_the_pdf_view ... ok
+test app_tests::full_ui_accepts_first_typed_text_after_open_without_pointer_or_tab ... ok
+test app_tests::full_ui_workbook_literal_input_receives_typing_and_cell_selection_has_separate_undo_ids ... ok
+test app_tests::request_save_explains_blank_text_instead_of_opening_save_as_immediately ... ok
+test app_tests::replacement_skips_its_own_inserted_matches_and_uses_fresh_editor_text ... ok
+test app_tests::replace_noop_invalid_and_modal_operations_do_not_change_dirty_history_or_source ... ok
+test app_tests::search_finds_matching_document_fragments ... ok
+test app_tests::spreadsheet_column_names_continue_after_z ... ok
+test app_tests::table_grid_widths_preserve_column_proportions ... ok
+test app_tests::table_rows_are_separate_flow_blocks ... ok
+test app_tests::recovery_timer_tracks_latest_edit_and_save_error_is_visible_without_losing_model ... ok
+test app_tests::replace_current_then_all_are_single_undo_transactions_and_save_as_roundtrips ... ok
+test app_tests::row_copy_paste_uses_key_events ... ok
+test app_tests::text_replace_all_is_one_undo_transaction ... ok
+test app_tests::save_as_adopts_the_new_path_and_later_save_does_not_change_original ... ok
+test app_tests::legacy_conversion_uses_existing_edit_guards_and_independent_docx_save_baselines ... ok
+test app_tests::text_open_replacement_failure_and_switching_formats_preserve_active_data ... ok
+test app_tests::recovered_images_tables_fonts_and_print_plan_survive_a_second_crash ... ok
+test app_tests::saving_before_pending_open_switches_only_after_the_save_succeeds ... ok
+test app_tests::replacement_is_per_window_and_two_window_saves_still_detect_conflicts ... ok
+test app_tests::unified_find_switches_sheets_and_exposes_far_cell_without_editing_workbook ... ok
+test app_tests::screen_preview_paints_the_docx_image_and_scales_it_without_editing_the_model ... ok
+test app_tests::windows_pdf_fixture_regression ... ignored, requires Microsoft Print to PDF; writes DOCX/PDF evidence under manual_phase3_artifacts
+test app_tests::undo_history_retains_the_latest_hundred_edits_instead_of_dropping_newest ... ok
+test app_tests::unified_find_keeps_docx_table_text_searchable ... ok
+test app_tests::unified_find_refreshes_after_docx_edit_undo_redo_and_replacement_without_dirtying ... ok
+test app_tests::unified_find_ctrl_f_focus_enter_f3_escape_and_modal_guard ... ok
+test legacy_layout::tests::invalid_anchor_is_treated_as_unplaced ... ok
+test legacy_layout::tests::keeps_paragraph_and_image_order_and_appends_unplaced_images ... ok
+test legacy_layout::tests::starts_a_new_page_without_dropping_an_oversized_image ... ok
+test app_tests::workbook_undo_redo_restores_values_and_formatting ... ok
+test app_tests::workbook_replace_all_is_one_undo_transaction ... ok
+test preferences_tests::reading_zoom_supports_large_values_and_rejects_invalid_values ... ok
+test preferences_tests::default_preferences_are_within_limits ... ok
+test ui_theme::theme_tests::every_theme_keeps_ordinary_text_and_fields_above_4_5 ... ok
+test ui_theme::theme_tests::theme_labels_and_slugs_are_stable ... ok
+test app_tests::text_recovery_error_pending_empty_edits_and_dont_save_close_keep_correct_state ... ok
+test app_tests::theme_switches_are_local_and_do_not_touch_document_history_or_print_settings ... ok
+test app_tests::initial_caret_and_text_stay_on_screen_in_a_short_window_at_four_hundred_percent ... ok
+test app_tests::two_window_conflict_can_cancel_then_save_a_copy_without_overwriting_first_window ... ok
+test app_tests::unsaved_close_requires_a_choice_and_cancel_keeps_edits ... ok
+test app_tests::native_sized_window_keeps_initial_editor_visible_focused_and_typable_after_idle_frames ... ok
+test app_tests::workbook_crash_recovery_restores_edited_cells_and_requires_copy ... ok
+test app_tests::workbook_edits_close_guards_save_baselines_and_two_window_conflicts_are_independent ... ok
+test app_tests::inline_workbook_mouse_typing_tab_enter_and_save_reopen_keep_cell_values ... ok
+test app_tests::text_recovery_restore_save_copy_and_cleanup_cover_untitled_txt_md_and_rtf ... ok
+test pdf_view::tests::pdf_pages_paint_textures_at_all_zooms_with_bounded_cache_and_no_source_changes ... ok
+test app_tests::full_preview_keeps_last_cyrillic_and_wide_glyphs_visible_at_all_view_zooms ... ok
+test app_tests::docx_pdf_export_writes_a_valid_pdf ... ok
+test app_tests::spreadsheet_pdf_export_paginates_and_writes_a_valid_pdf ... ok
+
+test result: ok. 90 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 2.48s
+
+     Running tests\doc_export.rs (target\debug\deps\doc_export-23b7df73509b33be.exe)
+
+running 3 tests
+test conversion_keeps_anchored_and_unplaced_images_and_does_not_silently_drop_bad_rasters ... ok
+test imported_doc_edits_and_font_size_roundtrip_without_overwriting_or_copying_macros ... ok
+test converted_unsaved_edits_can_be_checkpointed_and_restored_without_touching_doc ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\pdf_print.rs (target\debug\deps\pdf_print-43b5360feb5fb446.exe)
+
+running 2 tests
+test export_and_verify_input_pdf_range_orientation_and_scale ... ignored, explicit new input-PDF print-to-PDF check only; does not run old print/recovery regression
+test print_snapshot_and_bad_range_fail_without_opening_a_printer_dialog ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests\pdf_security.rs (target\debug\deps\pdf_security-b09a39c97bcb4740.exe)
+
+running 4 tests
+test export_pdf_reader_evidence ... ignored, export only new PDF-reader safety fixtures, no printing
+test render_existing_mixed_pdf_for_reader_qa ... ignored, read-only PDF-reader QA of an existing mixed PDF; never prints
+test native_pdf_launch_openaction_is_not_dispatched ... ok
+test native_pdf_pages_render_without_dispatching_document_actions_or_mutating_source ... ok
+
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests\search_formats.rs (target\debug\deps\search_formats-ca12a8404c4dc84c.exe)
+
+running 7 tests
+test export_manual_find_fixtures ... ignored, explicit export of new synthetic manual Find fixtures; no PDF or recovery regression
+test export_manual_replace_fixtures ... ignored, explicit export of synthetic replacement fixtures; no print or recovery regression
+test export_manual_workbook_fixtures ... ignored, explicit synthetic workbook fixture export; no printing or recovery regression
+test all_four_importers_feed_the_same_read_only_find_contract ... ok
+test legacy_and_modern_workbook_values_export_as_safe_xlsx_copies ... ok
+test docx_replace_save_reopen_keeps_empty_runs_styles_and_all_other_package_parts ... ok
+test office_macros_embedded_scripts_and_field_instructions_are_not_executed ... ok
+
+test result: ok. 4 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests\xlsb.rs (target\debug\deps\xlsb-cd7d41d5fbc0c36d.exe)
+
+running 4 tests
+test real_xlsb_dates_display_iso_instead_of_serial_numbers ... ok
+test mixed_xlsb_opens_all_worksheets_without_reading_chart_or_macro_sheets ... ok
+test real_xlsb_strings_cyrillic_bools_and_numbers_stay_unchanged ... ok
+test damaged_real_worksheet_is_reported_instead_of_silently_skipped ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+

@@ -744,6 +744,7 @@ struct IsolatedTextSave {
 enum CleanCopyData {
     Docx {
         model: liteoffice::docx::DocumentModel,
+        images: Vec<liteoffice::docx::DocxImage>,
     },
     Workbook {
         sheets: Vec<liteoffice::xlsx::SpreadsheetModel>,
@@ -784,11 +785,9 @@ fn legacy_convert_worker_mode() -> Option<i32> {
             &std::fs::read(&data_path).map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?;
-        let legacy = liteoffice::doc::LegacyDocPackage::open(&source)
-            .map_err(|error| error.to_string())?;
         let package = DocxPackage::from_legacy(
             &source,
-            &legacy,
+            &data.legacy,
             &data.anchors,
             &data.widths,
         )
@@ -905,12 +904,15 @@ fn clean_copy_worker_mode() -> Option<i32> {
         )
         .map_err(|error| error.to_string())?;
         match data {
-            CleanCopyData::Docx { model } => {
-                let mut package = DocxPackage::open(&source).map_err(|error| error.to_string())?;
-                package.model = model;
-                liteoffice::clean_copy::clean_docx(&source, &package, &destination)
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
+            CleanCopyData::Docx { model, images } => {
+                liteoffice::clean_copy::clean_docx_parts(
+                    &source,
+                    &model,
+                    &images,
+                    &destination,
+                )
+                .map(|_| ())
+                .map_err(|error| error.to_string())
             }
             CleanCopyData::Workbook { sheets, formats } => {
                 let formats = formats.into_iter().collect::<std::collections::BTreeMap<_, _>>();
@@ -1593,26 +1595,42 @@ fn save_xlsx_isolated(
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DocxSaveData {
+    source: PathBuf,
+    model: liteoffice::docx::DocumentModel,
+    imported_legacy: bool,
+    package_path: PathBuf,
+    xml_path: PathBuf,
+}
+
 fn docx_save_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     if args.first().and_then(|value| value.to_str()) != Some("--docx-save-worker") {
         return None;
     }
-    if args.len() != 5 {
+    if args.len() != 4 {
         return Some(2);
     }
-    let source = PathBuf::from(&args[1]);
-    let destination = PathBuf::from(&args[2]);
-    let model_path = PathBuf::from(&args[3]);
-    let result_path = PathBuf::from(&args[4]);
+    let destination = PathBuf::from(&args[1]);
+    let data_path = PathBuf::from(&args[2]);
+    let result_path = PathBuf::from(&args[3]);
     let result = (|| -> Result<(), String> {
-        let model: DocumentModel = serde_json::from_slice(
-            &std::fs::read(&model_path).map_err(|error| error.to_string())?,
+        let data: DocxSaveData = serde_json::from_slice(
+            &std::fs::read(&data_path).map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?;
-        let mut package = DocxPackage::open(&source).map_err(|error| error.to_string())?;
-        package.model = model;
-        package
+        let package = std::fs::read(&data.package_path).map_err(|error| error.to_string())?;
+        let xml = std::fs::read(&data.xml_path).map_err(|error| error.to_string())?;
+        let document = DocxPackage::from_worker_parts(
+            data.source,
+            package,
+            xml,
+            data.model,
+            data.imported_legacy,
+        )
+        .map_err(|error| error.to_string())?;
+        document
             .save_as(&destination)
             .map_err(|error| error.to_string())
     })();
@@ -1624,31 +1642,48 @@ fn docx_save_worker_mode() -> Option<i32> {
     Some(if result.is_ok() { 0 } else { 1 })
 }
 
-fn save_docx_isolated(source: &Path, destination: &Path, model: &DocumentModel) -> Result<(), String> {
+fn save_docx_isolated(package: &DocxPackage, destination: &Path) -> Result<(), String> {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_nanos();
-    let model_path = std::env::temp_dir().join(format!(
-        "notoffice-docx-save-model-{}-{nonce}.json",
+    let data_path = std::env::temp_dir().join(format!(
+        "notoffice-docx-save-data-{}-{nonce}.json",
         std::process::id()
     ));
     let result_path = std::env::temp_dir().join(format!(
         "notoffice-docx-save-result-{}-{nonce}.txt",
         std::process::id()
     ));
+    let package_path = std::env::temp_dir().join(format!(
+        "notoffice-docx-save-package-{}-{nonce}.bin",
+        std::process::id()
+    ));
+    let xml_path = std::env::temp_dir().join(format!(
+        "notoffice-docx-save-xml-{}-{nonce}.bin",
+        std::process::id()
+    ));
+    let (package_bytes, xml_bytes, imported_legacy) = package.worker_parts();
+    std::fs::write(&package_path, package_bytes).map_err(|error| error.to_string())?;
+    std::fs::write(&xml_path, xml_bytes).map_err(|error| error.to_string())?;
+    let data = DocxSaveData {
+        source: package.source_path().to_path_buf(),
+        model: package.model.clone(),
+        imported_legacy,
+        package_path: package_path.clone(),
+        xml_path: xml_path.clone(),
+    };
     std::fs::write(
-        &model_path,
-        serde_json::to_vec(model).map_err(|error| error.to_string())?,
+        &data_path,
+        serde_json::to_vec(&data).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = std::process::Command::new(executable);
     command
         .arg("--docx-save-worker")
-        .arg(source)
         .arg(destination)
-        .arg(&model_path)
+        .arg(&data_path)
         .arg(&result_path)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -1674,15 +1709,17 @@ fn save_docx_isolated(source: &Path, destination: &Path, model: &DocumentModel) 
             }
             Err(error) => {
                 let _ = child.kill();
-                let _ = std::fs::remove_file(&model_path);
-                let _ = std::fs::remove_file(&result_path);
+                for path in [&data_path, &result_path, &package_path, &xml_path] {
+                    let _ = std::fs::remove_file(path);
+                }
                 return Err(format!("DOCX save process failed: {error}"));
             }
         }
     };
     let message = std::fs::read_to_string(&result_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&model_path);
-    let _ = std::fs::remove_file(&result_path);
+    for path in [&data_path, &result_path, &package_path, &xml_path] {
+        let _ = std::fs::remove_file(path);
+    }
     match status {
         Some(status) if status.success() => Ok(()),
         Some(_) => Err(if message.is_empty() {
