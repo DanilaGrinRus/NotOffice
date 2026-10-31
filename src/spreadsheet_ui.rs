@@ -1210,9 +1210,6 @@ impl SpreadsheetDocument {
             self.selection.range_end = None;
             self.focus_pending = false;
         }
-        if ui.input(|input| input.pointer.any_click()) {
-            self.paste_highlight = None;
-        }
         let Some(sheet) = self.selected_sheet() else {
             return false;
         };
