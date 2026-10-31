@@ -360,53 +360,70 @@ fn spreadsheet_print_blocks(
         .map(|cell| cell.row + 1)
         .max()
         .unwrap_or(0)
-        .clamp(16, 10_000);
+        .min(10_000);
     let max_column = sheet
         .cells
         .iter()
         .map(|cell| cell.column + 1)
         .max()
         .unwrap_or(0)
-        .clamp(12, 32);
+        .min(32);
     if max_row == 0 || max_column == 0 {
         return vec![print::PrintBlock::Text(sheet.sheet_name.clone())];
     }
+
+    // A portrait page cannot fit a wide spreadsheet without turning every
+    // cell into a vertical sliver. Split wide sheets into readable column
+    // groups, repeating the row numbers and the header on each page.
+    let columns_per_page = if settings.landscape { 8 } else { 5 };
     let rows_per_page = if settings.landscape { 24 } else { 34 };
+    let mut groups = Vec::new();
+    let mut first = 0usize;
+    while first < max_column {
+        let last = (first + columns_per_page).min(max_column);
+        groups.push(first..last);
+        first = last;
+    }
+
     let mut blocks = Vec::new();
-    let mut start = 0usize;
     let mut page = 0usize;
-    while start < max_row {
-        let end = (start + rows_per_page).min(max_row);
-        if page > 0 {
-            blocks.push(print::PrintBlock::PageBreak);
-        }
-        blocks.push(print::PrintBlock::Text(format!(
-            "{} — {}",
-            sheet.sheet_name,
-            page + 1
-        )));
-        let mut header = Vec::with_capacity(max_column + 1);
-        header.push(String::new());
-        for column in 0..max_column {
-            header.push(spreadsheet_column_name(column).to_owned());
-        }
-        blocks.push(print::PrintBlock::TableRow(header));
-        for row in start..end {
-            let mut values = Vec::with_capacity(max_column + 1);
-            values.push((row + 1).to_string());
-            for column in 0..max_column {
-                let value = sheet
-                    .cells
-                    .iter()
-                    .find(|cell| cell.row == row && cell.column == column)
-                    .map(|cell| cell.value.as_str())
-                    .unwrap_or("");
-                values.push(value.to_owned());
+    for group in groups {
+        let mut start = 0usize;
+        while start < max_row {
+            let end = (start + rows_per_page).min(max_row);
+            if page > 0 {
+                blocks.push(print::PrintBlock::PageBreak);
             }
-            blocks.push(print::PrintBlock::TableRow(values));
+            let first_column = spreadsheet_column_name(group.start);
+            let last_column = spreadsheet_column_name(group.end.saturating_sub(1));
+            blocks.push(print::PrintBlock::Text(format!(
+                "{} — {} ({first_column}–{last_column})",
+                sheet.sheet_name,
+                page + 1
+            )));
+            let mut header = Vec::with_capacity(group.len() + 1);
+            header.push(String::new());
+            for column in group.clone() {
+                header.push(spreadsheet_column_name(column).to_owned());
+            }
+            blocks.push(print::PrintBlock::TableRow(header));
+            for row in start..end {
+                let mut values = Vec::with_capacity(group.len() + 1);
+                values.push((row + 1).to_string());
+                for column in group.clone() {
+                    let value = sheet
+                        .cells
+                        .iter()
+                        .find(|cell| cell.row == row && cell.column == column)
+                        .map(|cell| cell.value.as_str())
+                        .unwrap_or("");
+                    values.push(value.to_owned());
+                }
+                blocks.push(print::PrintBlock::TableRow(values));
+            }
+            start = end;
+            page += 1;
         }
-        start = end;
-        page += 1;
     }
     blocks
 }
