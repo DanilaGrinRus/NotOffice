@@ -155,20 +155,42 @@ $onPage = [Drawing.Printing.PrintPageEventHandler] {
         }
         if ($item.Type -eq 'R') {
             $cellCount = $item.Cells.Count
-            $cellWidth = [single]($width / $cellCount)
+            if ($cellCount -eq 0) { $script:index++; continue }
+            $available = [single][math]::Max(1, $width)
+            $minimumWidth = if ($cellCount -gt 8) { [single]16 } else { [single]34 }
+            $desired = New-Object 'System.Collections.Generic.List[double]'
+            for ($cellIndex = 0; $cellIndex -lt $cellCount; $cellIndex++) {
+                $cellText = [string]$item.Cells[$cellIndex]
+                if ($cellIndex -eq 0 -and $cellCount -gt 1) {
+                    $desired.Add(28.0)
+                } else {
+                    $natural = [double]$g.MeasureString($cellText, $script:font).Width + 14.0
+                    $desired.Add([double][math]::Max($minimumWidth, [math]::Min($available * 0.45, $natural)))
+                }
+            }
+            $desiredTotal = 0.0
+            foreach ($value in $desired) { $desiredTotal += $value }
+            if ($desiredTotal -le 0) { $desiredTotal = $available }
+            $scale = $available / $desiredTotal
+            $cellWidths = New-Object 'System.Collections.Generic.List[double]'
+            foreach ($value in $desired) { $cellWidths.Add([double]($value * $scale)) }
             $rowHeight = [single]($lineHeight + 10)
-            foreach ($cell in $item.Cells) {
-                $measured = $g.MeasureString([string]$cell, $script:font, [int][math]::Max(1, $cellWidth - 8))
+            for ($cellIndex = 0; $cellIndex -lt $cellCount; $cellIndex++) {
+                $cellWidth = [single]$cellWidths[$cellIndex]
+                $measured = $g.MeasureString([string]$item.Cells[$cellIndex], $script:font, [int][math]::Max(1, $cellWidth - 8))
                 $rowHeight = [single][math]::Max($rowHeight, $measured.Height + 10)
             }
             if ($y + $rowHeight -gt $maxY -and $y -gt $bounds.Top) { break }
             $pen = [Drawing.Pen]::new([Drawing.Color]::Black, [single]1)
             try {
+                $cellX = [single]$bounds.Left
                 for ($cellIndex = 0; $cellIndex -lt $cellCount; $cellIndex++) {
-                    $rect = [Drawing.RectangleF]::new([single]($bounds.Left + $cellIndex * $cellWidth), $y, $cellWidth, $rowHeight)
+                    $cellWidth = [single]$cellWidths[$cellIndex]
+                    $rect = [Drawing.RectangleF]::new($cellX, $y, $cellWidth, $rowHeight)
                     $g.DrawRectangle($pen, $rect.X, $rect.Y, $rect.Width, $rect.Height)
                     $g.DrawString([string]$item.Cells[$cellIndex], $script:font, [Drawing.Brushes]::Black,
                         [Drawing.RectangleF]::new($rect.X + 4, $rect.Y + 4, $rect.Width - 8, $rect.Height - 8))
+                    $cellX += $cellWidth
                 }
             } finally { $pen.Dispose() }
             $y += $rowHeight + 4
