@@ -360,14 +360,14 @@ fn spreadsheet_print_blocks(
         .map(|cell| cell.row + 1)
         .max()
         .unwrap_or(0)
-        .min(10_000);
+        .clamp(16, 10_000);
     let max_column = sheet
         .cells
         .iter()
         .map(|cell| cell.column + 1)
         .max()
         .unwrap_or(0)
-        .min(32);
+        .clamp(12, 32);
     if max_row == 0 || max_column == 0 {
         return vec![print::PrintBlock::Text(sheet.sheet_name.clone())];
     }
@@ -392,7 +392,8 @@ fn spreadsheet_print_blocks(
         }
         blocks.push(print::PrintBlock::TableRow(header));
         for row in start..end {
-            let mut values = Vec::with_capacity(max_column);
+            let mut values = Vec::with_capacity(max_column + 1);
+            values.push((row + 1).to_string());
             for column in 0..max_column {
                 let value = sheet
                     .cells
