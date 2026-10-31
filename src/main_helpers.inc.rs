@@ -671,6 +671,7 @@ fn restore_recovery_isolated(
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -836,6 +837,7 @@ fn convert_legacy_isolated(
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -957,6 +959,7 @@ fn clean_copy_isolated(
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1076,6 +1079,7 @@ fn save_text_isolated(
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1203,71 +1207,11 @@ fn open_xlsx_isolated(path: &Path) -> Result<XlsxPackage, String> {
     if parser_isolation_disabled() {
         return XlsxPackage::open(path).map_err(|error| error.to_string());
     }
-    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_nanos();
-    let output = std::env::temp_dir().join(format!(
-        "notoffice-xlsx-{}-{nonce}.json",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&output);
-    let mut command = std::process::Command::new(executable);
-    command
-        .arg("--xlsx-parse-worker")
-        .arg(path)
-        .arg(&output)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-            Err(error) => {
-                let _ = child.kill();
-                return Err(format!("XLSX parser process failed: {error}"));
-            }
-        }
-    };
-    let bytes = std::fs::read(&output).unwrap_or_default();
-    let _ = std::fs::remove_file(&output);
-    match status {
-        Some(status) if status.success() => {
-            let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
-                .map_err(|error| format!("XLSX parser returned invalid data: {error}"))?;
-            Ok(isolated.into_package())
-        }
-        Some(_) => Err(if bytes.is_empty() {
-            "XLSX parser process failed".into()
-        } else {
-            String::from_utf8_lossy(&bytes).into_owned()
-        }),
-        None => Err("XLSX parser timed out".into()),
-    }
+    let bytes = run_isolated_worker(path, "--xlsx-parse-worker", "xlsx")?;
+    let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("XLSX parser returned invalid data: {error}"))?;
+    Ok(isolated.into_package())
 }
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct IsolatedDocx {
-    model: liteoffice::docx::DocumentModel,
-    images: Vec<liteoffice::docx::DocxImage>,
-}
-
 
 fn xls_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
@@ -1348,6 +1292,21 @@ fn csv_worker_mode() -> Option<i32> {
 }
 
 fn run_isolated_worker(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, String> {
+    if cfg!(test) {
+        return run_isolated_worker_direct(path, flag, label);
+    }
+    #[cfg(windows)]
+    {
+        let _ = label;
+        liteoffice::worker_sandbox::run(path, flag)
+    }
+    #[cfg(not(windows))]
+    {
+        run_isolated_worker_direct(path, flag, label)
+    }
+}
+
+fn run_isolated_worker_direct(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, String> {
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1373,6 +1332,7 @@ fn run_isolated_worker(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, 
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1583,6 +1543,7 @@ fn save_xlsx_isolated(
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1683,6 +1644,7 @@ fn save_docx_isolated(source: &Path, destination: &Path, model: &DocumentModel) 
         command.creation_flags(0x08000000);
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let _job = liteoffice::worker_job::Job::assign(&child);
     let started = std::time::Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1715,6 +1677,12 @@ fn save_docx_isolated(source: &Path, destination: &Path, model: &DocumentModel) 
         }),
         None => Err("DOCX save timed out".into()),
     }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IsolatedDocx {
+    model: liteoffice::docx::DocumentModel,
+    images: Vec<liteoffice::docx::DocxImage>,
 }
 
 fn docx_worker_mode() -> Option<i32> {
@@ -1758,63 +1726,9 @@ fn open_docx_isolated(path: &Path) -> Result<DocxPackage, String> {
     if parser_isolation_disabled() {
         return DocxPackage::open(path).map_err(|error| error.to_string());
     }
-    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_nanos();
-    let output = std::env::temp_dir().join(format!(
-        "notoffice-docx-{}-{nonce}.json",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&output);
-    let mut command = std::process::Command::new(executable);
-    command
-        .arg("--docx-parse-worker")
-        .arg(path)
-        .arg(&output)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() < std::time::Duration::from_secs(30) => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-            Err(error) => {
-                let _ = child.kill();
-                return Err(format!("DOCX parser process failed: {error}"));
-            }
-        }
-    };
-    let bytes = std::fs::read(&output).unwrap_or_default();
-    let _ = std::fs::remove_file(&output);
-    match status {
-        Some(status) if status.success() => {
-            let isolated: IsolatedDocx = serde_json::from_slice(&bytes)
-                .map_err(|error| format!("DOCX parser returned invalid data: {error}"))?;
-            DocxPackage::from_isolated_model(path.to_path_buf(), isolated.model, isolated.images)
-                .map_err(|error| error.to_string())
-        }
-        Some(_) => Err(if bytes.is_empty() {
-            "DOCX parser process failed".into()
-        } else {
-            String::from_utf8_lossy(&bytes).into_owned()
-        }),
-        None => Err("DOCX parser timed out".into()),
-    }
+    let bytes = run_isolated_worker(path, "--docx-parse-worker", "docx")?;
+    let isolated: IsolatedDocx = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("DOCX parser returned invalid data: {error}"))?;
+    DocxPackage::from_isolated_model(path.to_path_buf(), isolated.model, isolated.images)
+        .map_err(|error| error.to_string())
 }
-

@@ -217,3 +217,7 @@
 
 - TXT/MD/RTF save, clean-copy и legacy DOC→DOCX conversion также вынесены в worker-процессы.
 - Основной release теперь собран с `panic = "abort"`; таймауты и падения worker-процессов не завершают UI.
+
+- Открытие DOCX/XLSX/XLS/CSV/DOC/TXT/RTF переведено на общий AppContainer-worker с Job Object 512 МиБ.
+- Save/clean-copy/conversion worker-процессы получили Job Object; транзакционная установка output через родителя пока не завершена.
+- Recovery пока использует обычный worker-процесс.

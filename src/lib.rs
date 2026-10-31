@@ -29,5 +29,9 @@ pub mod table_formula;
 pub mod text_document;
 pub mod theme;
 pub mod workbook_edit;
+#[cfg(windows)]
+pub mod worker_job;
+#[cfg(windows)]
+pub mod worker_sandbox;
 pub mod xls;
 pub mod xlsx;
