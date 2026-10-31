@@ -224,6 +224,6 @@
 
 - DOCX save/clean-copy/legacy conversion получают модель и состояние пакета; повторный разбор исходного ZIP/XML в writer-процессе убран.
 
-- UI-проверки: TXT save + backup + SourceChanged — PASS; DOCX save + backup — PASS; OneDrive save — PASS; recovery в AppContainer — PASS; XLSX save + backup + повторное открытие — PASS. UNC-путь исключён из проверки по решению пользователя.
+- UI-проверки: TXT save + backup + SourceChanged — PASS; DOCX save + backup — PASS; OneDrive save — PASS; recovery в AppContainer — PASS; XLSX save + backup; сохранённый пакет проверен парсером — PASS. UNC-путь исключён из проверки по решению пользователя.
 
 - UI 1.0.4: двойной клик в DOCX выделяет слово с Unicode-границами; диапазон таблицы не оставляет активную ячейку; вставленный диапазон подсвечивается и сбрасывается кликом; числа показываются с запятой и округлением также в активной ячейке; ввод формулы =3*4 — одна транзакция Undo; активная ячейка получила контрастный фон.
