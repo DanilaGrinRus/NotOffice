@@ -293,7 +293,7 @@ fn next_list_prefix(text: &str) -> Option<String> {
     None
 }
 
-fn unicode_word_range(text: &str, index: usize) -> (usize, usize) {
+pub(crate) fn unicode_word_range(text: &str, index: usize) -> (usize, usize) {
     let chars = text.chars().collect::<Vec<_>>();
     if chars.is_empty() {
         return (0, 0);

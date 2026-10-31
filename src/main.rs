@@ -4707,15 +4707,40 @@ impl NotOfficeApp {
                             ui.memory_mut(|m| m.request_focus(id));
                             self.select_all_text = false;
                         }
-                        let response = ui.add_sized(
-                            ui.available_size().max(egui::vec2(100.0, 300.0)),
-                            egui::TextEdit::multiline(&mut document.text)
-                                .id(id)
-                                .font(egui::FontId::monospace(14.0 * self.zoom))
-                                .text_color(ui_theme::text_ink())
-                                .char_limit(8 * 1024 * 1024),
-                        );
-                        self.text_input_id = Some(response.id);
+                        let size = ui.available_size().max(egui::vec2(100.0, 300.0));
+                        let output = ui
+                            .allocate_ui_with_layout(
+                                size,
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    egui::TextEdit::multiline(&mut document.text)
+                                        .id(id)
+                                        .font(egui::FontId::monospace(14.0 * self.zoom))
+                                        .text_color(ui_theme::text_ink())
+                                        .char_limit(8 * 1024 * 1024)
+                                        .show(ui)
+                                },
+                            )
+                            .inner;
+                        if output.response.double_clicked() {
+                            if let Some(pointer) = output.response.interact_pointer_pos() {
+                                let cursor =
+                                    output.galley.cursor_from_pos(pointer - output.galley_pos);
+                                let (start, end) = crate::docx_view::unicode_word_range(
+                                    &document.text,
+                                    cursor.ccursor.index,
+                                );
+                                let mut state = output.state.clone();
+                                state
+                                    .cursor
+                                    .set_char_range(Some(egui::text::CCursorRange::two(
+                                        egui::text::CCursor::new(start),
+                                        egui::text::CCursor::new(end),
+                                    )));
+                                state.store(ui.ctx(), id);
+                            }
+                        }
+                        self.text_input_id = Some(output.response.id);
                     });
             } else if let Some(pdf) = self.pdf.as_mut() {
                 pdf.show(ui, self.zoom);
