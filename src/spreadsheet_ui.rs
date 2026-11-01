@@ -782,6 +782,14 @@ impl SpreadsheetDocument {
             moved_highlights.insert((sheet, highlight_row, column), color);
         }
         self.highlights = moved_highlights;
+        // A paste highlight is screen state, but it must follow the shifted
+        // cells or it would colour the wrong place after an insert.
+        if let Some((sheet, top, left, bottom, right)) = self.paste_highlight {
+            if sheet == selected_sheet {
+                let shift = |value: usize| if value >= row { value + 1 } else { value };
+                self.paste_highlight = Some((sheet, shift(top), left, shift(bottom), right));
+            }
+        }
         if let Some(editor) = self.editor.as_mut() {
             let mut moved_editor_formats = std::collections::BTreeMap::new();
             for (key, format) in std::mem::take(&mut editor.formats) {
@@ -857,6 +865,12 @@ impl SpreadsheetDocument {
             moved_highlights.insert((sheet, row, highlight_column), color);
         }
         self.highlights = moved_highlights;
+        if let Some((sheet, top, left, bottom, right)) = self.paste_highlight {
+            if sheet == selected_sheet {
+                let shift = |value: usize| if value >= column { value + 1 } else { value };
+                self.paste_highlight = Some((sheet, top, shift(left), bottom, shift(right)));
+            }
+        }
         if let Some(editor) = self.editor.as_mut() {
             let mut moved_editor_formats = std::collections::BTreeMap::new();
             for (key, format) in std::mem::take(&mut editor.formats) {
@@ -879,6 +893,8 @@ impl SpreadsheetDocument {
         if row.is_none() && column.is_none() {
             return false;
         }
+        // Removing a row/column invalidates the pasted-block rectangle.
+        self.paste_highlight = None;
         let Some(sheet) = self.sheets.get_mut(self.selected_sheet) else {
             return false;
         };
@@ -2186,6 +2202,18 @@ fn render_cells(
                                             // A chosen fill must be visible immediately while
                                             // the cells are still selected.
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
+                                        } else if selected_by_table {
+                                            // A selected row/column must read as selected even where
+                                            // cells carry their own fill: tint that fill instead of
+                                            // leaving the row partly unhighlighted.
+                                            match format.fill {
+                                                Some(fill) => egui::Color32::from_rgb(
+                                                    ((fill[0] as u16 * 2 + 184) / 3) as u8,
+                                                    ((fill[1] as u16 * 2 + 216) / 3) as u8,
+                                                    ((fill[2] as u16 * 2 + 246) / 3) as u8,
+                                                ),
+                                                None => egui::Color32::from_rgb(184, 216, 246),
+                                            }
                                         } else if let Some(color) = search
                                             .highlights
                                             .and_then(|colors| colors.get(&(search.formats.map(|(_, sheet)| sheet).unwrap_or(0), row, column)))
@@ -2198,8 +2226,6 @@ fn render_cells(
                                             egui::Color32::WHITE
                                         } else if selected_by_range {
                                             egui::Color32::from_rgb(174, 210, 247)
-                                        } else if selected_by_table {
-                                            egui::Color32::from_rgb(184, 216, 246)
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
                                         } else if is_match {
