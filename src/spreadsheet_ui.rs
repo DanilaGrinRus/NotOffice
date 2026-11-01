@@ -950,14 +950,23 @@ impl SpreadsheetDocument {
                     selected_row,
                     selected_column,
                 ));
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.value_input)
-                        .id(value_id)
-                        .desired_width(300.0)
-                        .text_color(egui::Color32::from_rgb(48, 52, 56))
-                        .hint_text(tr!("Значение ячейки", "Cell value"))
-                        .char_limit(32767),
-                );
+                // The field selects its whole text on focus; an opaque selection
+                // wash would hide the value, so use the same translucent tint as
+                // the in-cell editor.
+                let response = ui
+                    .scope(|ui| {
+                        ui.visuals_mut().selection.bg_fill =
+                            egui::Color32::from_rgba_unmultiplied(190, 220, 250, 110);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.value_input)
+                                .id(value_id)
+                                .desired_width(300.0)
+                                .text_color(egui::Color32::from_rgb(48, 52, 56))
+                                .hint_text(tr!("Значение ячейки", "Cell value"))
+                                .char_limit(32767),
+                        )
+                    })
+                    .inner;
                 self.value_input_id = Some(response.id);
                 if response.gained_focus() {
                     let mut state = egui::text_edit::TextEditState::load(ui.ctx(), response.id)
@@ -2203,7 +2212,10 @@ fn render_cells(
                                                     }
                                                     ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
                                                     ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
-                                                    ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgb(190,220,250);
+                                                    // egui paints the selection rectangle over the glyphs. An
+                                                    // opaque light fill washed the text out, so the tint is
+                                                    // translucent and the characters stay dark.
+                                                    ui.visuals_mut().selection.bg_fill = egui::Color32::from_rgba_unmultiplied(190, 220, 250, 110);
                                                     ui.visuals_mut().selection.stroke = egui::Stroke::new(1.0_f32,egui::Color32::BLACK);
                                                     let inner_width=*width-8.0*zoom;
                                                     let inner_height=(format.size as f32*1.5).max(18.0)*zoom;
