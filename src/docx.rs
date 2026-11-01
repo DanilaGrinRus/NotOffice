@@ -81,6 +81,7 @@ pub struct DocumentModel {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DocxImage {
+    #[serde(with = "crate::base64_bytes")]
     pub bytes: Vec<u8>,
     /// Paragraph containing this drawing reference (including table paragraphs).
     pub paragraph_index: usize,

@@ -18,6 +18,10 @@ const MAX_XLSX_SHARED_STRINGS: usize = 250_000;
 const MAX_CELL_TEXT_BYTES: usize = 1_048_576;
 const MAX_EXCEL_ROWS: usize = 1_048_576;
 const MAX_EXCEL_COLUMNS: usize = 16_384;
+type FormulaMap = std::collections::BTreeMap<crate::workbook_edit::CellKey, String>;
+type FormatMap =
+    std::collections::BTreeMap<crate::workbook_edit::CellKey, crate::workbook_edit::CellFormat>;
+type ParsedWorksheet = (SpreadsheetModel, FormulaMap, FormatMap);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SpreadsheetCell {
@@ -136,37 +140,19 @@ impl XlsxPackage {
         let mut formats = std::collections::BTreeMap::new();
         let mut formulas = std::collections::BTreeMap::new();
         let mut sheets = Vec::new();
-        for (sheet_name, relationship_id) in workbook_sheets(&workbook)? {
+        for (sheet_index, (sheet_name, relationship_id)) in
+            workbook_sheets(&workbook)?.into_iter().enumerate()
+        {
             let worksheet_path = worksheet_path(&relationships, &relationship_id)?;
             let worksheet = read_zip_part(&mut archive, &worksheet_path, &mut total_uncompressed)?;
-            for (key, formula) in parse_formulas(&worksheet, sheets.len())? {
-                formulas.insert(key, formula);
-            }
-            let mut reader = Reader::from_reader(worksheet.as_slice());
-            loop {
-                match reader.read_event()? {
-                    Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"c" => {
-                        if let Some((position, format)) =
-                            attribute(&e, b"r").and_then(|r| cell_position(&r)).zip(
-                                attribute(&e, b"s")
-                                    .and_then(|s| s.parse::<usize>().ok())
-                                    .and_then(|s| styles.get(s)),
-                            )
-                        {
-                            if formats.len() >= MAX_XLSX_TOTAL_CELLS {
-                                return Err(XlsxError::ResourceLimit(
-                                    "formatted-cell budget exceeded".into(),
-                                ));
-                            }
-                            formats.insert((sheets.len(), position.0, position.1), *format);
-                        }
-                    }
-                    Event::Eof => break,
-                    _ => {}
-                }
-            }
-            let parsed_sheet =
-                parse_worksheet(&worksheet, &shared_strings, sheet_name, &date_styles)?;
+            let (parsed_sheet, parsed_formulas, parsed_formats) = parse_worksheet(
+                &worksheet,
+                &shared_strings,
+                sheet_name,
+                &date_styles,
+                &styles,
+                sheet_index,
+            )?;
             let total_cells = sheets
                 .iter()
                 .map(|sheet: &SpreadsheetModel| sheet.cells.len())
@@ -177,6 +163,13 @@ impl XlsxPackage {
                     "workbook cell count exceeds the 500000-cell budget".into(),
                 ));
             }
+            if formats.len().saturating_add(parsed_formats.len()) > MAX_XLSX_TOTAL_CELLS {
+                return Err(XlsxError::ResourceLimit(
+                    "formatted-cell budget exceeded".into(),
+                ));
+            }
+            formats.extend(parsed_formats);
+            formulas.extend(parsed_formulas);
             sheets.push(parsed_sheet);
         }
         let model = sheets.first().cloned().ok_or(XlsxError::MissingWorksheet)?;
@@ -310,55 +303,6 @@ fn parse_font_styles(xml: &[u8]) -> Result<Vec<crate::workbook_edit::CellFormat>
         }
     }
     Ok(styles)
-}
-
-fn parse_formulas(
-    xml: &[u8],
-    sheet_index: usize,
-) -> Result<std::collections::BTreeMap<crate::workbook_edit::CellKey, String>, XlsxError> {
-    let mut reader = Reader::from_reader(Cursor::new(xml));
-    reader.config_mut().trim_text(false);
-    let mut buffer = Vec::new();
-    let mut formula = String::new();
-    let mut in_formula = false;
-    let mut current_reference = None;
-    let mut formulas = std::collections::BTreeMap::new();
-    loop {
-        match reader.read_event_into(&mut buffer)? {
-            Event::Start(e) if e.name().as_ref() == b"c" => {
-                current_reference = attribute(&e, b"r");
-                formula.clear();
-            }
-            Event::Start(e) if e.name().as_ref() == b"f" => in_formula = true,
-            Event::End(e) if e.name().as_ref() == b"f" => in_formula = false,
-            Event::Text(text) if in_formula => {
-                formula.push_str(
-                    &text
-                        .unescape()
-                        .map_err(|error| XlsxError::InvalidWorkbook(error.to_string()))?,
-                );
-            }
-            Event::End(e) if e.name().as_ref() == b"c" => {
-                if let (Some(reference), false) = (current_reference.take(), formula.is_empty()) {
-                    if let Some((row, column)) = cell_position(&reference) {
-                        if crate::table_formula::is_simple_formula(&formula) {
-                            if formulas.len() >= MAX_XLSX_CELLS_PER_SHEET {
-                                return Err(XlsxError::ResourceLimit(
-                                    "formula budget exceeded".into(),
-                                ));
-                            }
-                            formulas.insert((sheet_index, row, column), format!("={formula}"));
-                        }
-                    }
-                }
-                formula.clear();
-            }
-            Event::Eof => break,
-            _ => {}
-        }
-        buffer.clear();
-    }
-    Ok(formulas)
 }
 
 fn workbook_sheets(xml: &[u8]) -> Result<Vec<(String, String)>, XlsxError> {
@@ -586,17 +530,23 @@ fn parse_worksheet(
     shared_strings: &[String],
     sheet_name: String,
     date_styles: &[bool],
-) -> Result<SpreadsheetModel, XlsxError> {
+    styles: &[crate::workbook_edit::CellFormat],
+    sheet_index: usize,
+) -> Result<ParsedWorksheet, XlsxError> {
     let mut reader = Reader::from_reader(Cursor::new(xml));
     reader.config_mut().trim_text(false);
     let mut buffer = Vec::new();
     let mut cells = Vec::new();
+    let mut formulas = std::collections::BTreeMap::new();
+    let mut formats = std::collections::BTreeMap::new();
     let mut current_reference = None;
     let mut current_type = String::new();
     let mut current_style = None;
     let mut value = String::new();
+    let mut formula = String::new();
     let mut in_value = false;
     let mut in_inline_text = false;
+    let mut in_formula = false;
 
     loop {
         match reader.read_event_into(&mut buffer)? {
@@ -606,13 +556,24 @@ fn parse_worksheet(
                 current_style =
                     attribute(&event, b"s").and_then(|style| style.parse::<usize>().ok());
                 value.clear();
+                formula.clear();
+                in_formula = false;
             }
+            Event::Start(event) if event.name().as_ref() == b"f" => in_formula = true,
+            Event::End(event) if event.name().as_ref() == b"f" => in_formula = false,
             Event::Start(event) if event.name().as_ref() == b"v" => in_value = true,
             Event::End(event) if event.name().as_ref() == b"v" => in_value = false,
             Event::Start(event) if current_type == "inlineStr" && event.name().as_ref() == b"t" => {
                 in_inline_text = true
             }
             Event::End(event) if event.name().as_ref() == b"t" => in_inline_text = false,
+            Event::Text(text) if in_formula => {
+                formula.push_str(
+                    &text
+                        .unescape()
+                        .map_err(|error| XlsxError::InvalidWorkbook(error.to_string()))?,
+                );
+            }
             Event::Text(text) if in_value || in_inline_text => {
                 value.push_str(
                     &text
@@ -630,6 +591,21 @@ fn parse_worksheet(
                     let (row, column) = cell_position(&reference).ok_or_else(|| {
                         XlsxError::InvalidWorkbook(format!("invalid cell reference {reference}"))
                     })?;
+                    if let Some(format) = current_style.and_then(|index| styles.get(index)).copied()
+                    {
+                        if formats.len() >= MAX_XLSX_CELLS_PER_SHEET {
+                            return Err(XlsxError::ResourceLimit(
+                                "formatted-cell budget exceeded".into(),
+                            ));
+                        }
+                        formats.insert((sheet_index, row, column), format);
+                    }
+                    if !formula.is_empty() && crate::table_formula::is_simple_formula(&formula) {
+                        if formulas.len() >= MAX_XLSX_CELLS_PER_SHEET {
+                            return Err(XlsxError::ResourceLimit("formula budget exceeded".into()));
+                        }
+                        formulas.insert((sheet_index, row, column), format!("={formula}"));
+                    }
                     let mut displayed_value = match current_type.as_str() {
                         "s" => value
                             .parse::<usize>()
@@ -661,6 +637,7 @@ fn parse_worksheet(
                         value: displayed_value,
                     });
                 }
+                formula.clear();
             }
             Event::Eof => break,
             _ => {}
@@ -669,12 +646,16 @@ fn parse_worksheet(
     }
     let row_count = cells.iter().map(|cell| cell.row + 1).max().unwrap_or(0);
     let column_count = cells.iter().map(|cell| cell.column + 1).max().unwrap_or(0);
-    Ok(SpreadsheetModel {
-        sheet_name,
-        cells,
-        row_count,
-        column_count,
-    })
+    Ok((
+        SpreadsheetModel {
+            sheet_name,
+            cells,
+            row_count,
+            column_count,
+        },
+        formulas,
+        formats,
+    ))
 }
 
 #[cfg(test)]
@@ -693,7 +674,8 @@ mod tests {
 
     #[test]
     fn formulas_use_cached_values_and_external_or_escaping_worksheet_targets_are_rejected() {
-        let sheet = parse_worksheet(br#"<worksheet><sheetData><row r="1"><c r="A1" t="str"><f>WEBSERVICE("https://example.invalid/script")</f><v>Cached only</v></c></row></sheetData></worksheet>"#, &[], "Data".into(), &[]).unwrap();
+        let (sheet, formulas, _) = parse_worksheet(br#"<worksheet><sheetData><row r="1"><c r="A1" t="str"><f>WEBSERVICE("https://example.invalid/script")</f><v>Cached only</v></c></row></sheetData></worksheet>"#, &[], "Data".into(), &[], &[], 0).unwrap();
+        assert!(formulas.is_empty());
         assert_eq!(sheet.cell_value(0, 0), "Cached only");
         for xml in [
             r#"<Relationships><Relationship Id="r" Target="https://example.invalid/sheet.xml" TargetMode="External"/></Relationships>"#,

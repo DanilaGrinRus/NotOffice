@@ -70,6 +70,7 @@ pub struct VerifiedShapeImage {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LegacyDocImage {
+    #[serde(with = "crate::base64_bytes")]
     pub bytes: Vec<u8>,
     pub format: LegacyImageFormat,
 }

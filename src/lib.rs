@@ -2,6 +2,7 @@
 
 pub mod a4;
 pub mod app_paths;
+pub mod base64_bytes;
 pub mod clean_copy;
 pub mod clipboard;
 pub mod csv_import;
