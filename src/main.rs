@@ -119,6 +119,7 @@ struct WorkbookSnapshot {
     sheets: Vec<SpreadsheetModel>,
     formats: std::collections::BTreeMap<CellKey, CellFormat>,
     formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
+    highlights: liteoffice::spreadsheet_ui::CellHighlights,
 }
 
 struct NotOfficeApp {
@@ -1150,7 +1151,10 @@ impl NotOfficeApp {
             .map(|book| {
                 (
                     book.selection.row.is_some() || book.selection.column.is_some(),
-                    book.selection.range_start.is_some() && book.selection.range_end.is_some(),
+                    match (book.selection.range_start, book.selection.range_end) {
+                        (Some(start), Some(end)) => start != end,
+                        _ => false,
+                    },
                 )
             })
             .unwrap_or((false, false));
@@ -2798,6 +2802,7 @@ impl NotOfficeApp {
             sheets: book.sheets.clone(),
             formats: book.formats.clone(),
             formulas: book.formulas.clone(),
+            highlights: book.highlights.clone(),
         })
     }
 
@@ -2831,6 +2836,7 @@ impl NotOfficeApp {
         book.sheets = snapshot.sheets;
         book.formats = snapshot.formats.clone();
         book.formulas = snapshot.formulas.clone();
+        book.highlights = snapshot.highlights.clone();
         if let Some(editor) = book.editor.as_mut() {
             editor.formats = snapshot.formats;
             editor.formulas = snapshot.formulas;

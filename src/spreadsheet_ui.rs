@@ -41,6 +41,7 @@ pub struct SpreadsheetDocument {
     pub formulas: std::collections::BTreeMap<(usize, usize, usize), String>,
     pub highlights: CellHighlights,
     pub paste_highlight: Option<(usize, usize, usize, usize, usize)>,
+    pub paste_highlight_hold_click: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +158,7 @@ impl SpreadsheetDocument {
             row + grid.rows.saturating_sub(1),
             column + grid.columns.saturating_sub(1),
         ));
+        self.paste_highlight_hold_click = true;
         Ok((grid.rows, grid.columns))
     }
 
@@ -572,6 +574,7 @@ impl SpreadsheetDocument {
             row + highlight_rows,
             column + highlight_columns,
         ));
+        self.paste_highlight_hold_click = true;
         true
     }
 
@@ -743,6 +746,16 @@ impl SpreadsheetDocument {
             moved_formats.insert((sheet, format_row, column), format);
         }
         self.formats = moved_formats;
+        let mut moved_highlights = std::collections::BTreeMap::new();
+        for ((sheet, highlight_row, column), color) in std::mem::take(&mut self.highlights) {
+            let highlight_row = if sheet == selected_sheet && highlight_row >= row {
+                highlight_row + 1
+            } else {
+                highlight_row
+            };
+            moved_highlights.insert((sheet, highlight_row, column), color);
+        }
+        self.highlights = moved_highlights;
         if let Some(editor) = self.editor.as_mut() {
             let mut moved_editor_formats = std::collections::BTreeMap::new();
             for (key, format) in std::mem::take(&mut editor.formats) {
@@ -808,6 +821,16 @@ impl SpreadsheetDocument {
             moved_formats.insert((sheet, format_row, format_column), format);
         }
         self.formats = moved_formats;
+        let mut moved_highlights = std::collections::BTreeMap::new();
+        for ((sheet, row, highlight_column), color) in std::mem::take(&mut self.highlights) {
+            let highlight_column = if sheet == selected_sheet && highlight_column >= column {
+                highlight_column + 1
+            } else {
+                highlight_column
+            };
+            moved_highlights.insert((sheet, row, highlight_column), color);
+        }
+        self.highlights = moved_highlights;
         if let Some(editor) = self.editor.as_mut() {
             let mut moved_editor_formats = std::collections::BTreeMap::new();
             for (key, format) in std::mem::take(&mut editor.formats) {
@@ -837,6 +860,18 @@ impl SpreadsheetDocument {
         sheet
             .cells
             .retain(|cell| !(row == Some(cell.row) || column == Some(cell.column)));
+        let sheet_index = self.selected_sheet;
+        self.highlights.retain(|(sheet, cell_row, cell_column), _| {
+            !(*sheet == sheet_index && (row == Some(*cell_row) || column == Some(*cell_column)))
+        });
+        self.formats.retain(|(sheet, cell_row, cell_column), _| {
+            !(*sheet == sheet_index && (row == Some(*cell_row) || column == Some(*cell_column)))
+        });
+        if let Some(editor) = self.editor.as_mut() {
+            editor.formats.retain(|(sheet, cell_row, cell_column), _| {
+                !(*sheet == sheet_index && (row == Some(*cell_row) || column == Some(*cell_column)))
+            });
+        }
         sheet.cells.len() != before
     }
 
@@ -919,7 +954,7 @@ impl SpreadsheetDocument {
                     egui::TextEdit::singleline(&mut self.value_input)
                         .id(value_id)
                         .desired_width(300.0)
-                        .text_color(egui::Color32::BLACK)
+                        .text_color(egui::Color32::from_rgb(48, 52, 56))
                         .hint_text(tr!("Значение ячейки", "Cell value"))
                         .char_limit(32767),
                 );
@@ -1210,16 +1245,18 @@ impl SpreadsheetDocument {
             self.selection.range_end = None;
             self.focus_pending = false;
         }
-        if self.paste_highlight.is_some()
-            && ui.input(|input| input.pointer.any_click())
+        let paste_click_inside = ui.input(|input| input.pointer.any_click())
             && ui
                 .input(|input| input.pointer.interact_pos())
-                .is_some_and(|pos| ui.max_rect().contains(pos))
-        {
-            // Any click on the document surface dismisses the paste marker.
-            // Toolbar/menu clicks are outside the document panel and keep it,
-            // so pasting from the "Buffer" menu is still visibly highlighted.
-            self.paste_highlight = None;
+                .is_some_and(|pos| ui.max_rect().contains(pos));
+        if self.paste_highlight.is_some() && paste_click_inside {
+            if self.paste_highlight_hold_click {
+                self.paste_highlight_hold_click = false;
+            } else {
+                self.paste_highlight = None;
+            }
+        } else if !paste_click_inside {
+            self.paste_highlight_hold_click = false;
         }
         let Some(sheet) = self.selected_sheet() else {
             return false;
@@ -1299,7 +1336,8 @@ impl SpreadsheetDocument {
         if edit.focus_used {
             self.focus_pending = false;
         }
-        let mut changed = !edit.changes.is_empty();
+        let inline_edited = !edit.changes.is_empty();
+        let mut changed = inline_edited;
         let submit = edit.submit;
         let mut submitted_applied = false;
         for (row, column, text) in edit.changes {
@@ -1322,6 +1360,25 @@ impl SpreadsheetDocument {
                 text
             };
             self.set_cell_text(row, column, value);
+        }
+        if inline_edited {
+            if let Some((row, column)) = self.selected_cell {
+                self.value_input = self
+                    .selected_sheet()
+                    .map(|sheet| {
+                        format_display_value(
+                            sheet.cell_value(row, column),
+                            self.decimal_places,
+                            self.decimal_separator,
+                        )
+                    })
+                    .unwrap_or_default();
+                self.formula_input = self
+                    .formulas
+                    .get(&(self.selected_sheet, row, column))
+                    .cloned()
+                    .unwrap_or_default();
+            }
         }
         if let Some((row, column, text)) = submit {
             if !submitted_applied {
@@ -1460,18 +1517,18 @@ fn highlighted_cell_text(text: &str, query: &str, size: f32) -> egui::WidgetText
     if ranges.is_empty() {
         return egui::RichText::new(text)
             .size(size)
-            .color(egui::Color32::BLACK)
+            .color(egui::Color32::from_rgb(48, 52, 56))
             .into();
     }
     let font = egui::FontId::proportional(size);
     let normal = egui::TextFormat {
         font_id: font.clone(),
-        color: egui::Color32::BLACK,
+        color: egui::Color32::from_rgb(48, 52, 56),
         ..Default::default()
     };
     let hit = egui::TextFormat {
         font_id: font,
-        color: egui::Color32::BLACK,
+        color: egui::Color32::from_rgb(48, 52, 56),
         background: egui::Color32::from_rgb(255, 226, 120),
         ..Default::default()
     };
@@ -2027,7 +2084,7 @@ fn render_cells(
                                     let mut value: egui::WidgetText = if is_active {
                                         egui::RichText::new(display_text)
                                             .size(format.size as f32 * zoom)
-                                            .color(egui::Color32::BLACK)
+                                            .color(egui::Color32::from_rgb(48, 52, 56))
                                             .into()
                                     } else {
                                         highlighted_cell_text(
@@ -2083,10 +2140,6 @@ fn render_cells(
                                     let response = egui::Frame::none()
                                         .fill(if is_target {
                                             egui::Color32::from_rgb(255, 214, 120)
-                                        } else if selected_by_range {
-                                            egui::Color32::from_rgb(174, 210, 247)
-                                        } else if selected_by_table {
-                                            egui::Color32::from_rgb(184, 216, 246)
                                         } else if search.paste_highlight.is_some_and(|(r1, c1, r2, c2)| {
                                             row >= r1.min(r2)
                                                 && row <= r1.max(r2)
@@ -2094,9 +2147,9 @@ fn render_cells(
                                                 && column <= c1.max(c2)
                                         }) {
                                             egui::Color32::from_rgb(198, 239, 206)
-                                        } else if is_active {
-                                            egui::Color32::WHITE
                                         } else if let Some(color) = format.fill {
+                                            // A chosen fill must be visible immediately while
+                                            // the cells are still selected.
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
                                         } else if let Some(color) = search
                                             .highlights
@@ -2104,6 +2157,12 @@ fn render_cells(
                                             .copied()
                                         {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
+                                        } else if selected_by_range {
+                                            egui::Color32::from_rgb(174, 210, 247)
+                                        } else if selected_by_table {
+                                            egui::Color32::from_rgb(184, 216, 246)
+                                        } else if is_active {
+                                            egui::Color32::WHITE
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
                                         } else if is_match {
@@ -2153,7 +2212,7 @@ fn render_cells(
                                                             ui.set_width(inner_width);
                                                             egui::TextEdit::singleline(&mut text).id(id)
                                                                 .font(egui::FontId::proportional(format.size as f32*zoom))
-                                                                .text_color(egui::Color32::BLACK)
+                                                                .text_color(egui::Color32::from_rgb(48, 52, 56))
                                                                 .desired_width(inner_width)
                                                                 .char_limit(32767)
                                                                 .show(ui)
