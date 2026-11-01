@@ -485,6 +485,32 @@ impl SpreadsheetDocument {
         Some(text)
     }
 
+    /// Re-reads the active cell into the toolbar fields. Undo/redo replaces the
+    /// sheet under the expanded value window, which would otherwise keep the
+    /// pre-undo text.
+    pub fn refresh_active_inputs(&mut self) {
+        let Some((row, column)) = self.selected_cell else {
+            return;
+        };
+        let value = self
+            .selected_sheet()
+            .map(|sheet| {
+                format_display_value(
+                    sheet.cell_value(row, column),
+                    self.decimal_places,
+                    self.decimal_separator,
+                )
+            })
+            .unwrap_or_default();
+        let formula = self
+            .formulas
+            .get(&(self.selected_sheet, row, column))
+            .cloned()
+            .unwrap_or_default();
+        self.value_input = value;
+        self.formula_input = formula;
+    }
+
     pub fn paste_selected_row_or_column(&mut self) -> bool {
         if self.editor.is_none() {
             return false;
@@ -2210,7 +2236,10 @@ fn render_cells(
                                                             edit.submit = Some((row,column,if response.changed() {text.clone()} else {original_text.clone()}));
                                                         }
                                                     }
-                                                    ui.visuals_mut().extreme_bg_color = egui::Color32::WHITE;
+                                                    ui.visuals_mut().extreme_bg_color = format
+                                                        .fill
+                                                        .map(|color| egui::Color32::from_rgb(color[0], color[1], color[2]))
+                                                        .unwrap_or(egui::Color32::WHITE);
                                                     ui.visuals_mut().text_cursor.stroke = egui::Stroke::new(2.0_f32,egui::Color32::BLACK);
                                                     // egui paints the selection rectangle over the glyphs. An
                                                     // opaque light fill washed the text out, so the tint is

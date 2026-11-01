@@ -1159,19 +1159,21 @@ impl NotOfficeApp {
             })
             .unwrap_or((false, false));
         // A range/row/column selection owns Ctrl+C/V even if a cell editor
-        // still has keyboard focus from the previous single-cell click.
-        if !(has_row_or_column || has_range) {
+        // still has keyboard focus from the previous single-cell click. Copy
+        // stays with the cell editor for a single cell, but a block copied in
+        // this window must still paste there: otherwise the whole block lands
+        // inside one cell.
+        let range_copy = has_row_or_column || has_range;
+        let table_clipboard_available = self
+            .spreadsheet
+            .as_ref()
+            .is_some_and(|book| book.table_clipboard.is_some());
+        if !range_copy && !table_clipboard_available {
             return;
         }
         if ctx.wants_keyboard_input() && !cell_editor_focused {
             return;
         }
-        let copy_event = ctx.input(|input| {
-            input
-                .events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Copy))
-        });
         let pasted_text = ctx.input(|input| {
             input.events.iter().find_map(|event| {
                 if let egui::Event::Paste(text) = event {
@@ -1182,35 +1184,43 @@ impl NotOfficeApp {
             })
         });
         let paste_event = pasted_text.is_some();
-        let copy_key = !copy_event
-            && ctx.input_mut(|input| {
-                input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
-                    || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
-            });
-        if copy_event {
-            ctx.input_mut(|input| {
+        if range_copy {
+            let copy_event = ctx.input(|input| {
                 input
                     .events
-                    .retain(|event| !matches!(event, egui::Event::Copy))
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Copy))
             });
-        }
-        if copy_key || copy_event {
-            let copied = self.spreadsheet.as_mut().and_then(|book| {
-                if has_row_or_column {
-                    book.copy_selected_row_or_column()
-                } else {
-                    book.copy_selected_range()
-                }
-            });
-            if let Some(text) = copied {
-                ctx.copy_text(text);
-                self.status = tr!(
-                    "Строка/столбец/диапазон скопированы; выберите место и нажмите Ctrl+V",
-                    "Row/column/range copied; select a destination and press Ctrl+V"
-                )
-                .into();
+            let copy_key = !copy_event
+                && ctx.input_mut(|input| {
+                    input.consume_key(egui::Modifiers::CTRL, egui::Key::C)
+                        || input.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+                });
+            if copy_event {
+                ctx.input_mut(|input| {
+                    input
+                        .events
+                        .retain(|event| !matches!(event, egui::Event::Copy))
+                });
             }
-            return;
+            if copy_key || copy_event {
+                let copied = self.spreadsheet.as_mut().and_then(|book| {
+                    if has_row_or_column {
+                        book.copy_selected_row_or_column()
+                    } else {
+                        book.copy_selected_range()
+                    }
+                });
+                if let Some(text) = copied {
+                    ctx.copy_text(text);
+                    self.status = tr!(
+                        "Строка/столбец/диапазон скопированы; выберите место и нажмите Ctrl+V",
+                        "Row/column/range copied; select a destination and press Ctrl+V"
+                    )
+                    .into();
+                }
+                return;
+            }
         }
         if !paste_event
             && !ctx.input_mut(|input| {
@@ -2847,6 +2857,7 @@ impl NotOfficeApp {
         }) {
             book.selected_cell = None;
         }
+        book.refresh_active_inputs();
         self.search_dirty = true;
     }
 
