@@ -92,6 +92,43 @@ $document.DefaultPageSettings.Landscape = $landscape
 # Printer units are hundredths of an inch, not millimetres.
 $marginPrinter = [int][math]::Round($marginMm * 100.0 / 25.4)
 $document.DefaultPageSettings.Margins = [Drawing.Printing.Margins]::new($marginPrinter,$marginPrinter,$marginPrinter,$marginPrinter)
+# One width set per table, measured from every row of that table. Measuring each
+# row on its own made the vertical borders jump from row to row, which read as a
+# broken table in the print preview.
+function Measure-TableWidths($graphics, [int]$start) {
+    $cellCount = $script:blocks[$start].Cells.Count
+    $available = [single][math]::Max(1, $script:printableWidth)
+    $minimumWidth = if ($cellCount -gt 8) { [single]16 } else { [single]34 }
+    $natural = New-Object 'double[]' $cellCount
+    $rows = New-Object 'System.Collections.Generic.List[object]'
+    for ($scan = $start; $scan -lt $script:blocks.Count; $scan++) {
+        $candidate = $script:blocks[$scan]
+        if ($candidate.Type -ne 'R' -or $candidate.Cells.Count -ne $cellCount) { break }
+        $rows.Add($candidate)
+        for ($index = 0; $index -lt $cellCount; $index++) {
+            if ($index -eq 0 -and $cellCount -gt 1) { continue }
+            $measured = [double]$graphics.MeasureString([string]$candidate.Cells[$index], $script:font).Width + 14.0
+            if ($measured -gt $natural[$index]) { $natural[$index] = $measured }
+        }
+    }
+    $desired = New-Object 'System.Collections.Generic.List[double]'
+    for ($index = 0; $index -lt $cellCount; $index++) {
+        if ($index -eq 0 -and $cellCount -gt 1) { $desired.Add(28.0); continue }
+        $capped = [math]::Min($available * 0.45, $natural[$index])
+        $desired.Add([double][math]::Max($minimumWidth, $capped))
+    }
+    $total = 0.0
+    foreach ($value in $desired) { $total += $value }
+    if ($total -le 0) { $total = $available }
+    $scale = $available / $total
+    $widths = New-Object 'System.Collections.Generic.List[double]'
+    foreach ($value in $desired) { $widths.Add([double]($value * $scale)) }
+    foreach ($row in $rows) {
+        $row | Add-Member -NotePropertyName Widths -NotePropertyValue $widths -Force
+    }
+    return $widths
+}
+
 $onBegin = [Drawing.Printing.PrintEventHandler] {
     param($sender,$e)
     $script:index = 0
@@ -115,6 +152,7 @@ $onPage = [Drawing.Printing.PrintPageEventHandler] {
     $maxY = [single]($bounds.Bottom - $footerSpace)
     $script:pageNumber++
     $width = [single]$bounds.Width
+    $script:printableWidth = $width
     $pageHasContent = $false
     while ($true) {
         if ($script:pending.Count -gt 0) {
@@ -156,24 +194,8 @@ $onPage = [Drawing.Printing.PrintPageEventHandler] {
         if ($item.Type -eq 'R') {
             $cellCount = $item.Cells.Count
             if ($cellCount -eq 0) { $script:index++; continue }
-            $available = [single][math]::Max(1, $width)
-            $minimumWidth = if ($cellCount -gt 8) { [single]16 } else { [single]34 }
-            $desired = New-Object 'System.Collections.Generic.List[double]'
-            for ($cellIndex = 0; $cellIndex -lt $cellCount; $cellIndex++) {
-                $cellText = [string]$item.Cells[$cellIndex]
-                if ($cellIndex -eq 0 -and $cellCount -gt 1) {
-                    $desired.Add(28.0)
-                } else {
-                    $natural = [double]$g.MeasureString($cellText, $script:font).Width + 14.0
-                    $desired.Add([double][math]::Max($minimumWidth, [math]::Min($available * 0.45, $natural)))
-                }
-            }
-            $desiredTotal = 0.0
-            foreach ($value in $desired) { $desiredTotal += $value }
-            if ($desiredTotal -le 0) { $desiredTotal = $available }
-            $scale = $available / $desiredTotal
-            $cellWidths = New-Object 'System.Collections.Generic.List[double]'
-            foreach ($value in $desired) { $cellWidths.Add([double]($value * $scale)) }
+            $cellWidths = $item.Widths
+            if (-not $cellWidths) { $cellWidths = Measure-TableWidths $g $script:index }
             $rowHeight = [single]($lineHeight + 10)
             for ($cellIndex = 0; $cellIndex -lt $cellCount; $cellIndex++) {
                 $cellWidth = [single]$cellWidths[$cellIndex]

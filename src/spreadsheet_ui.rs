@@ -2157,12 +2157,14 @@ fn render_cells(
                                             .copied()
                                         {
                                             egui::Color32::from_rgb(color[0], color[1], color[2])
+                                        } else if is_active {
+                                            // The active cell stays white even when it is also a
+                                            // one-cell range selection; a chosen fill still wins.
+                                            egui::Color32::WHITE
                                         } else if selected_by_range {
                                             egui::Color32::from_rgb(174, 210, 247)
                                         } else if selected_by_table {
                                             egui::Color32::from_rgb(184, 216, 246)
-                                        } else if is_active {
-                                            egui::Color32::WHITE
                                         } else if fill_preview {
                                             egui::Color32::from_rgb(220, 236, 250)
                                         } else if is_match {

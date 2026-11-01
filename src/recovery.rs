@@ -149,7 +149,10 @@ fn validated_package(path: &Path) -> Result<DocxPackage, crate::docx::DocxError>
     Ok(package)
 }
 
-const WORKBOOK_MAGIC: &[u8] = b"LITEOFFICE-XLSX-1\0";
+const WORKBOOK_MAGIC: &[u8] = b"LITEOFFICE-XLSX-2\0";
+/// 1.0.4 checkpoints stored no cell fill. They are still readable so an
+/// interrupted session from the previous build can be recovered once.
+const WORKBOOK_MAGIC_V1: &[u8] = b"LITEOFFICE-XLSX-1\0";
 const WORKBOOK_LIMIT: usize = 32 * 1024 * 1024;
 
 fn workbook_payload(
@@ -187,6 +190,15 @@ fn workbook_payload(
         body.extend((*column as u32).to_le_bytes());
         body.extend(format.size.to_le_bytes());
         body.push(u8::from(format.bold));
+        // A cell fill is user data: dropping it made the checkpoint round-trip
+        // check fail for every sheet with a coloured cell.
+        match format.fill {
+            Some(color) => {
+                body.push(1);
+                body.extend(color);
+            }
+            None => body.push(0),
+        }
     }
     if body.len() > WORKBOOK_LIMIT {
         return Err(io::Error::other("recovery workbook exceeds 32 MiB"));
@@ -246,8 +258,9 @@ fn read_workbook_payload(
         .take((WORKBOOK_LIMIT + WORKBOOK_MAGIC.len() + 18) as u64)
         .read_to_end(&mut bytes)?;
     let invalid = || io::Error::other("damaged or unsupported workbook checkpoint");
+    let legacy = bytes.starts_with(WORKBOOK_MAGIC_V1);
     let header = WORKBOOK_MAGIC.len() + 16;
-    if !bytes.starts_with(WORKBOOK_MAGIC) || bytes.len() < header {
+    if !legacy && !bytes.starts_with(WORKBOOK_MAGIC) || bytes.len() < header {
         return Err(invalid());
     }
     let length = u64::from_le_bytes(
@@ -311,22 +324,32 @@ fn read_workbook_payload(
         let column = cursor.u32()? as usize;
         let size = cursor.u16()?;
         let bold = cursor.u8()? != 0;
+        let fill = if legacy {
+            None
+        } else {
+            match cursor.u8()? {
+                0 => None,
+                1 => Some([cursor.u8()?, cursor.u8()?, cursor.u8()?]),
+                _ => return Err(invalid()),
+            }
+        };
         if sheet >= sheets.len() || row >= 1_048_576 || column >= 16_384 {
             return Err(invalid());
         }
-        formats.insert(
-            (sheet, row, column),
-            CellFormat {
-                size,
-                bold,
-                fill: None,
-            },
-        );
+        formats.insert((sheet, row, column), CellFormat { size, bold, fill });
     }
     if cursor.position != body.len() {
         return Err(invalid());
     }
     Ok((sheets, formats))
+}
+
+/// A failed checkpoint never publishes, so its temporary file is not evidence:
+/// remove it before reporting the error. Without this, a validation failure
+/// repeated on every idle tick left a growing pile of `pending-*.tmp` files.
+fn discard_pending(path: &Path, error: io::Error) -> io::Error {
+    let _ = fs::remove_file(path);
+    error
 }
 
 impl Session {
@@ -407,9 +430,15 @@ impl Session {
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        let (kind, text) = read_text_payload(&pending)?;
-        if kind != document.kind || text != document.text {
-            return Err(io::Error::other("text checkpoint round-trip mismatch"));
+        let checked = read_text_payload(&pending).and_then(|(kind, text)| {
+            if kind == document.kind && text == document.text {
+                Ok(())
+            } else {
+                Err(io::Error::other("text checkpoint round-trip mismatch"))
+            }
+        });
+        if let Err(error) = checked {
+            return Err(discard_pending(&pending, error));
         }
         fs::rename(&pending, &committed)?;
         let snapshots = self.snapshots()?;
@@ -488,9 +517,16 @@ impl Session {
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        let (restored_sheets, restored_formats) = read_workbook_payload(&pending)?;
-        if restored_sheets != sheets || restored_formats != *formats {
-            return Err(io::Error::other("workbook checkpoint round-trip mismatch"));
+        let checked =
+            read_workbook_payload(&pending).and_then(|(restored_sheets, restored_formats)| {
+                if restored_sheets == sheets && restored_formats == *formats {
+                    Ok(())
+                } else {
+                    Err(io::Error::other("workbook checkpoint round-trip mismatch"))
+                }
+            });
+        if let Err(error) = checked {
+            return Err(discard_pending(&pending, error));
         }
         fs::rename(&pending, &committed)?;
         let snapshots = self.snapshots()?;
@@ -558,12 +594,22 @@ impl Session {
         let committed = self
             .directory
             .join(format!("snapshot-{:020}.docx", self.generation));
-        package.save_as(&pending).map_err(io::Error::other)?;
-        let reopened = validated_package(&pending).map_err(io::Error::other)?;
-        if !same_visible_model(&reopened.model, &package.model) {
-            return Err(io::Error::other(
-                "recovery validation changed the document model",
-            ));
+        package
+            .save_as(&pending)
+            .map_err(|error| discard_pending(&pending, io::Error::other(error)))?;
+        let checked = validated_package(&pending)
+            .map_err(|error| discard_pending(&pending, io::Error::other(error)))
+            .and_then(|reopened| {
+                if same_visible_model(&reopened.model, &package.model) {
+                    Ok(())
+                } else {
+                    Err(io::Error::other(
+                        "recovery validation changed the document model",
+                    ))
+                }
+            });
+        if let Err(error) = checked {
+            return Err(discard_pending(&pending, error));
         }
         // save_as synced the complete ZIP. Rename publishes it only after the
         // full DOCX loader and model round-trip have succeeded.
@@ -1351,12 +1397,23 @@ mod tests {
             CellFormat {
                 size: 18,
                 bold: true,
-                fill: None,
+                fill: Some([255, 235, 150]),
             },
         );
         {
             let mut session = Session::create_workbook(&root, &origin).unwrap();
             session.checkpoint_workbook(&sheets, &formats).unwrap();
+            let pending = fs::read_dir(session.directory())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with("pending-"))
+                })
+                .count();
+            assert_eq!(pending, 0, "a committed checkpoint leaves no temp file");
         }
         let (sessions, warnings) = discover(&root).unwrap();
         assert!(warnings.is_empty(), "{warnings:?}");
