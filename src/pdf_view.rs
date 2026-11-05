@@ -21,11 +21,7 @@ impl PdfView {
         self.session.pages.len()
     }
     pub fn open(path: &Path) -> Result<Self, String> {
-        let session = if cfg!(test) {
-            PdfSession::open(path)?
-        } else {
-            PdfSession::open_isolated(path)?
-        };
+        let session = PdfSession::open(path)?;
         Ok(Self {
             session,
             selected: 0,

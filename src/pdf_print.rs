@@ -77,11 +77,8 @@ fn print_pdf_to_inner(
     isolated: bool,
 ) -> Result<PrintOutcome, String> {
     use crate::pdf::PdfSession;
-    let session = if isolated {
-        PdfSession::from_snapshot_isolated(snapshot)?
-    } else {
-        PdfSession::from_snapshot(snapshot)?
-    };
+    let _ = isolated;
+    let session = PdfSession::from_snapshot(snapshot)?;
     settings.validate(session.pages.len())?;
     let scale = settings
         .percent

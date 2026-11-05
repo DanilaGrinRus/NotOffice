@@ -17,6 +17,15 @@ pub struct Job(HANDLE);
 
 impl Job {
     pub fn assign(child: &Child) -> Option<Self> {
+        unsafe { Self::assign_handle(child.as_raw_handle() as HANDLE) }
+    }
+
+    /// Shared by the normal-process worker launcher and the AppContainer
+    /// launcher. The caller keeps this value alive until the child exits.
+    ///
+    /// # Safety
+    /// `process` must be a valid process handle owned by the caller.
+    pub unsafe fn assign_handle(process: HANDLE) -> Option<Self> {
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
             return None;
@@ -35,8 +44,7 @@ impl Job {
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )
         };
-        let assigned = set != 0
-            && unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) } != 0;
+        let assigned = set != 0 && unsafe { AssignProcessToJobObject(job, process) } != 0;
         if !assigned {
             unsafe { CloseHandle(job) };
             return None;

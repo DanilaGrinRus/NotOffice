@@ -16,63 +16,11 @@ pub struct PdfSession {
     pub pages: Vec<[f32; 2]>,
     requests: SyncSender<usize>,
     pub responses: Receiver<PageResult>,
-    _sandbox: Option<std::sync::Arc<crate::pdf_sandbox::Sandbox>>,
 }
 
 impl PdfSession {
     pub fn open(path: &Path) -> Result<Self, String> {
         Self::from_snapshot(std::sync::Arc::new(read_bounded(path)?))
-    }
-
-    pub fn open_isolated(path: &Path) -> Result<Self, String> {
-        if cfg!(test) {
-            return Self::open(path);
-        }
-        Self::from_snapshot_isolated(std::sync::Arc::new(read_bounded(path)?))
-    }
-
-    pub fn from_snapshot_isolated(bytes: std::sync::Arc<Vec<u8>>) -> Result<Self, String> {
-        if cfg!(test) {
-            return Self::from_snapshot(bytes);
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = &bytes;
-            return Err("PDF raster viewing requires Windows 10/11".into());
-        }
-        #[cfg(windows)]
-        {
-            if bytes.len() as u64 > MAX_PDF_BYTES
-                || !bytes[..bytes.len().min(1024)]
-                    .windows(5)
-                    .any(|header| header == b"%PDF-")
-            {
-                return Err("Invalid or oversized PDF snapshot".into());
-            }
-            let sandbox = std::sync::Arc::new(crate::pdf_sandbox::Sandbox::new(&bytes)?);
-            let pages = sandbox.probe()?;
-            let (requests, queue) = mpsc::sync_channel(1);
-            let (output, responses) = mpsc::channel();
-            let worker = sandbox.clone();
-            std::thread::Builder::new()
-                .name("pdf-isolated-reader".into())
-                .spawn(move || {
-                    while let Ok(index) = queue.recv() {
-                        let result = worker.render(index);
-                        if output.send((index, result)).is_err() {
-                            break;
-                        }
-                    }
-                })
-                .map_err(|error| format!("PDF isolated reader failed: {error}"))?;
-            Ok(Self {
-                snapshot: bytes,
-                pages,
-                requests,
-                responses,
-                _sandbox: Some(sandbox),
-            })
-        }
     }
 
     pub fn snapshot(&self) -> std::sync::Arc<Vec<u8>> {
@@ -112,7 +60,6 @@ impl PdfSession {
             pages,
             requests,
             responses,
-            _sandbox: None,
         })
     }
 

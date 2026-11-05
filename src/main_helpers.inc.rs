@@ -548,50 +548,6 @@ fn parser_isolation_disabled() -> bool { true }
 fn parser_isolation_disabled() -> bool { false }
 
 
-fn pdf_worker_mode() -> Option<i32> {
-    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    let flag = args.first().and_then(|value| value.to_str())?;
-    if flag != "--pdf-probe-worker" && flag != "--pdf-render-worker" {
-        return None;
-    }
-    if flag == "--pdf-probe-worker" {
-        if args.len() != 3 {
-            return Some(2);
-        }
-        let input = PathBuf::from(&args[1]);
-        let output = PathBuf::from(&args[2]);
-        let result = (|| -> Result<(), String> {
-            let session = liteoffice::pdf::PdfSession::open(&input)?;
-            let mut text = String::new();
-            for size in &session.pages {
-                text.push_str(&format!("{:.4} {:.4}\n", size[0], size[1]));
-            }
-            std::fs::write(&output, text).map_err(|error| error.to_string())
-        })();
-        let _ = std::fs::remove_file(PathBuf::from(format!("{}.err", output.display())));
-        return Some(if result.is_ok() { 0 } else { 1 });
-    }
-    if args.len() != 4 {
-        return Some(2);
-    }
-    let input = PathBuf::from(&args[1]);
-    let index = args[2].to_string_lossy().parse::<usize>().unwrap_or(usize::MAX);
-    let output = PathBuf::from(&args[3]);
-    let result = (|| -> Result<(), String> {
-        let session = liteoffice::pdf::PdfSession::open(&input)?;
-        session.request_page(index)?;
-        let (_, result) = session
-            .responses
-            .recv_timeout(std::time::Duration::from_secs(30))
-            .map_err(|error| error.to_string())?;
-        let png = result?;
-        std::fs::write(&output, png).map_err(|error| error.to_string())
-    })();
-    let _ = std::fs::remove_file(PathBuf::from(format!("{}.err", output.display())));
-    Some(if result.is_ok() { 0 } else { 1 })
-}
-
-
 #[derive(serde::Serialize, serde::Deserialize)]
 enum RecoveryPayload {
     Docx {
@@ -670,21 +626,6 @@ fn restore_recovery_isolated(
     root: &Path,
     directory: &Path,
 ) -> Result<(RecoveryPayload, bool), String> {
-    #[cfg(windows)]
-    {
-        let _ = root;
-        let bytes = liteoffice::worker_sandbox::run_recovery(directory)?;
-        let payload: RecoveryPayload = serde_json::from_slice(&bytes)
-            .map_err(|error| format!("Recovery worker returned invalid data: {error}"))?;
-        let fallback = match &payload {
-            RecoveryPayload::Docx { fallback, .. }
-            | RecoveryPayload::Workbook { fallback, .. }
-            | RecoveryPayload::Text { fallback, .. } => *fallback,
-        };
-        return Ok((payload, fallback));
-    }
-    #[allow(unreachable_code)]
-
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?
@@ -748,12 +689,6 @@ fn restore_recovery_isolated(
     }
 }
 
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct IsolatedText {
-    kind: liteoffice::text_document::TextKind,
-    text: String,
-}
 
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1155,72 +1090,14 @@ fn save_text_isolated(
     }
 }
 
-fn text_worker_mode() -> Option<i32> {
-    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    let fallback = args.first().and_then(|value| value.to_str())
-        == Some("--text-parse-fallback-worker");
-    if !fallback && args.first().and_then(|value| value.to_str()) != Some("--text-parse-worker") {
-        return None;
-    }
-    if args.len() != 3 {
-        return Some(2);
-    }
-    let input = PathBuf::from(&args[1]);
-    let output = PathBuf::from(&args[2]);
-    let result = if fallback {
-        liteoffice::text_document::TextDocument::open_as_text(&input)
-    } else {
-        liteoffice::text_document::TextDocument::open(&input)
-    };
-    let write = (|| -> std::io::Result<()> {
-        use std::io::Write as _;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&output)?;
-        match result {
-            Ok(document) => {
-                let isolated = IsolatedText {
-                    kind: document.kind,
-                    text: document.text,
-                };
-                serde_json::to_writer(&mut file, &isolated)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
-            }
-            Err(error) => {
-                file.write_all(error.to_string().as_bytes())?;
-                return Err(std::io::Error::other(error.to_string()));
-            }
-        }
-        file.flush()?;
-        Ok(())
-    })();
-    Some(if write.is_ok() { 0 } else { 1 })
-}
-
 fn open_text_isolated(path: &Path) -> Result<liteoffice::text_document::TextDocument, String> {
-    if parser_isolation_disabled() {
-        return liteoffice::text_document::TextDocument::open(path)
-            .map_err(|error| error.to_string());
-    }
-    let bytes = run_isolated_worker(path, "--text-parse-worker", "text")?;
-    let isolated: IsolatedText = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Text parser returned invalid data: {error}"))?;
-    liteoffice::text_document::TextDocument::from_isolated(isolated.kind, isolated.text, path)
-        .map_err(|error| error.to_string())
+    liteoffice::text_document::TextDocument::open(path).map_err(|error| error.to_string())
 }
 
 fn open_text_fallback_isolated(
     path: &Path,
 ) -> Result<liteoffice::text_document::TextDocument, String> {
-    if parser_isolation_disabled() {
-        return liteoffice::text_document::TextDocument::open_as_text(path)
-            .map_err(|error| error.to_string());
-    }
-    let bytes = run_isolated_worker(path, "--text-parse-fallback-worker", "text-fallback")?;
-    let isolated: IsolatedText = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Text fallback parser returned invalid data: {error}"))?;
-    liteoffice::text_document::TextDocument::from_fallback_isolated(isolated.text, path)
+    liteoffice::text_document::TextDocument::open_as_text(path)
         .map_err(|error| error.to_string())
 }
 
@@ -1313,58 +1190,25 @@ fn xls_worker_mode() -> Option<i32> {
     Some(if write.is_ok() { 0 } else { 1 })
 }
 
-fn csv_worker_mode() -> Option<i32> {
-    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    if args.first().and_then(|value| value.to_str()) != Some("--csv-parse-worker") {
-        return None;
-    }
-    if args.len() != 3 {
-        return Some(2);
-    }
-    let input = PathBuf::from(&args[1]);
-    let output = PathBuf::from(&args[2]);
-    let result = liteoffice::csv_import::open(&input);
-    let write = (|| -> std::io::Result<()> {
-        use std::io::Write as _;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&output)?;
-        match result {
-            Ok(model) => {
-                let isolated = IsolatedSpreadsheet {
-                    model: model.clone(),
-                    sheets: vec![model],
-                    formats: Vec::new(),
-                    formulas: Vec::new(),
-                };
-                serde_json::to_writer(&mut file, &isolated)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
-            }
-            Err(error) => {
-                file.write_all(error.as_bytes())?;
-                return Err(std::io::Error::other(error));
-            }
-        }
-        file.flush()?;
-        Ok(())
-    })();
-    Some(if write.is_ok() { 0 } else { 1 })
-}
-
 fn run_isolated_worker(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, String> {
     if cfg!(test) {
         return run_isolated_worker_direct(path, flag, label);
     }
     #[cfg(windows)]
     {
-        let _ = label;
-        liteoffice::worker_sandbox::run(path, flag)
+        let native_parser = matches!(
+            flag,
+            "--xlsx-parse-worker"
+                | "--docx-parse-worker"
+                | "--doc-parse-worker"
+                | "--xls-parse-worker"
+        );
+        if native_parser {
+            return liteoffice::worker_sandbox::run(path, flag);
+        }
     }
-    #[cfg(not(windows))]
-    {
-        run_isolated_worker_direct(path, flag, label)
-    }
+    let _ = label;
+    run_isolated_worker_direct(path, flag, label)
 }
 
 fn run_isolated_worker_direct(path: &Path, flag: &str, label: &str) -> Result<Vec<u8>, String> {
@@ -1440,13 +1284,7 @@ fn open_xls_isolated(path: &Path) -> Result<XlsPackage, String> {
 }
 
 fn open_csv_isolated(path: &Path) -> Result<SpreadsheetModel, String> {
-    if parser_isolation_disabled() {
-        return liteoffice::csv_import::open(path);
-    }
-    let bytes = run_isolated_worker(path, "--csv-parse-worker", "csv")?;
-    let isolated: IsolatedSpreadsheet = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("CSV parser returned invalid data: {error}"))?;
-    Ok(isolated.model)
+    liteoffice::csv_import::open(path)
 }
 
 

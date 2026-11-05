@@ -13,11 +13,6 @@ use windows_sys::Win32::Security::Isolation::{
     CreateAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
 };
 use windows_sys::Win32::Security::{PSID, SECURITY_CAPABILITIES};
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
-};
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
     InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
@@ -26,7 +21,6 @@ use windows_sys::Win32::System::Threading::{
 };
 
 const PROFILE_NAME: &str = "NotOffice.Worker";
-const PROCESS_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
 const OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
 
 pub fn run(path: &Path, flag: &str) -> Result<Vec<u8>, String> {
@@ -85,74 +79,6 @@ pub fn run(path: &Path, flag: &str) -> Result<Vec<u8>, String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run_recovery(directory: &Path) -> Result<Vec<u8>, String> {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_nanos();
-    let sandbox = std::env::temp_dir().join(format!(
-        "notoffice-recovery-sandbox-{}-{nonce}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&sandbox).map_err(|error| error.to_string())?;
-    let worker = sandbox.join("worker.exe");
-    let current = std::env::current_exe().map_err(|error| error.to_string())?;
-    std::fs::copy(&current, &worker).map_err(|error| error.to_string())?;
-    let copied_root = sandbox.join("root");
-    std::fs::create_dir_all(&copied_root).map_err(|error| error.to_string())?;
-    let name = directory
-        .file_name()
-        .ok_or_else(|| "Recovery session has no directory name".to_owned())?;
-    let copied_session = copied_root.join(name);
-    copy_directory(directory, &copied_session)?;
-    let output = sandbox.join("output.json");
-    let sid = sid_string()?;
-    let grant = format!("*{sid}:(OI)(CI)M");
-    let status = Command::new("icacls")
-        .arg(&sandbox)
-        .arg("/grant")
-        .arg(&grant)
-        .creation_flags(0x08000000)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        let _ = std::fs::remove_dir_all(&sandbox);
-        return Err("Recovery AppContainer ACL grant failed".into());
-    }
-    let args = vec![
-        "--recovery-restore-worker".to_owned(),
-        copied_root.to_string_lossy().into_owned(),
-        copied_session.to_string_lossy().into_owned(),
-        output.to_string_lossy().into_owned(),
-    ];
-    let result = run_process_args(&sandbox, &worker, &args, std::time::Duration::from_secs(30));
-    let bytes = std::fs::read(&output).unwrap_or_default();
-    let metadata = std::fs::symlink_metadata(&output).ok();
-    let valid = metadata
-        .as_ref()
-        .is_some_and(|value| value.file_type().is_file() && value.len() <= OUTPUT_LIMIT as u64);
-    let _ = std::fs::remove_dir_all(&sandbox);
-    result?;
-    if !valid || bytes.len() > OUTPUT_LIMIT {
-        return Err("Recovery worker returned an invalid or oversized result".into());
-    }
-    Ok(bytes)
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(destination).map_err(|error| error.to_string())?;
-    for entry in std::fs::read_dir(source).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let file_type = entry.file_type().map_err(|error| error.to_string())?;
-        if !file_type.is_file() || file_type.is_symlink() {
-            return Err("Recovery session contains an unsupported entry".into());
-        }
-        std::fs::copy(entry.path(), destination.join(entry.file_name()))
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
 fn run_process(
     directory: &Path,
     worker: &Path,
@@ -248,24 +174,7 @@ fn run_process_args(
             std::io::Error::last_os_error()
         ));
     }
-    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-    if !job.is_null() {
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY
-            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-            | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        info.BasicLimitInformation.ActiveProcessLimit = 1;
-        info.ProcessMemoryLimit = PROCESS_MEMORY_LIMIT;
-        unsafe {
-            SetInformationJobObject(
-                job,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const c_void,
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-            AssignProcessToJobObject(job, process.hProcess);
-        }
-    }
+    let _job = unsafe { crate::worker_job::Job::assign_handle(process.hProcess) };
     let wait = unsafe {
         WaitForSingleObject(
             process.hProcess,
@@ -283,9 +192,6 @@ fn run_process_args(
         GetExitCodeProcess(process.hProcess, &mut exit);
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
-        if !job.is_null() {
-            CloseHandle(job);
-        }
     }
     if wait == WAIT_TIMEOUT {
         return Err("Worker timed out".into());
