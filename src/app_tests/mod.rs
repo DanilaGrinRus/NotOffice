@@ -601,7 +601,7 @@ fn failed_replacement_keeps_recovery_and_successful_discard_open_retires_it() {
     let root = folder.path().join("recovery");
     write_docx_fixture(&source, "Original");
     write_docx_fixture(&replacement, "Replacement");
-    std::fs::write(&broken, b"broken ZIP").unwrap();
+    std::fs::write(&broken, b"broken ZIP\0").unwrap();
     let mut app = NotOfficeApp::default();
     app.initialize_recovery(root.clone());
     app.request_open_path(source);

@@ -1157,7 +1157,9 @@ fn save_text_isolated(
 
 fn text_worker_mode() -> Option<i32> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    if args.first().and_then(|value| value.to_str()) != Some("--text-parse-worker") {
+    let fallback = args.first().and_then(|value| value.to_str())
+        == Some("--text-parse-fallback-worker");
+    if !fallback && args.first().and_then(|value| value.to_str()) != Some("--text-parse-worker") {
         return None;
     }
     if args.len() != 3 {
@@ -1165,7 +1167,11 @@ fn text_worker_mode() -> Option<i32> {
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[2]);
-    let result = liteoffice::text_document::TextDocument::open(&input);
+    let result = if fallback {
+        liteoffice::text_document::TextDocument::open_as_text(&input)
+    } else {
+        liteoffice::text_document::TextDocument::open(&input)
+    };
     let write = (|| -> std::io::Result<()> {
         use std::io::Write as _;
         let mut file = std::fs::OpenOptions::new()
@@ -1201,6 +1207,20 @@ fn open_text_isolated(path: &Path) -> Result<liteoffice::text_document::TextDocu
     let isolated: IsolatedText = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Text parser returned invalid data: {error}"))?;
     liteoffice::text_document::TextDocument::from_isolated(isolated.kind, isolated.text, path)
+        .map_err(|error| error.to_string())
+}
+
+fn open_text_fallback_isolated(
+    path: &Path,
+) -> Result<liteoffice::text_document::TextDocument, String> {
+    if parser_isolation_disabled() {
+        return liteoffice::text_document::TextDocument::open_as_text(path)
+            .map_err(|error| error.to_string());
+    }
+    let bytes = run_isolated_worker(path, "--text-parse-fallback-worker", "text-fallback")?;
+    let isolated: IsolatedText = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Text fallback parser returned invalid data: {error}"))?;
+    liteoffice::text_document::TextDocument::from_fallback_isolated(isolated.text, path)
         .map_err(|error| error.to_string())
 }
 

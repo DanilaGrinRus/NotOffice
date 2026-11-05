@@ -124,6 +124,7 @@ struct WorkbookSnapshot {
 
 struct NotOfficeApp {
     text: Option<liteoffice::text_document::TextDocument>,
+    text_fallback_open: bool,
     text_focus_pending: bool,
     text_input_id: Option<egui::Id>,
     pdf_print_open: bool,
@@ -249,6 +250,7 @@ impl Default for NotOfficeApp {
         Self {
             pdf: None,
             text: None,
+            text_fallback_open: false,
             text_focus_pending: false,
             text_input_id: None,
             pdf_print_open: false,
@@ -2286,13 +2288,88 @@ impl NotOfficeApp {
         ));
     }
 
+    fn text_fallback_allowed(path: &Path) -> bool {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        !matches!(
+            extension.as_str(),
+            "docm"
+                | "dotm"
+                | "xlsm"
+                | "xlam"
+                | "xltm"
+                | "js"
+                | "mjs"
+                | "cjs"
+                | "vbs"
+                | "vbe"
+                | "wsf"
+                | "wsh"
+                | "ps1"
+                | "psm1"
+                | "bat"
+                | "cmd"
+                | "exe"
+                | "dll"
+                | "scr"
+                | "msi"
+                | "com"
+                | "lnk"
+                | "reg"
+                | "hta"
+                | "html"
+                | "htm"
+        )
+    }
+
+    fn open_failed_or_text(&mut self, path: &Path, stage: &str, error: impl std::fmt::Display) {
+        if Self::text_fallback_allowed(path) {
+            match open_text_fallback_isolated(path) {
+                Ok(document) => {
+                    self.text = Some(document);
+                    self.opened_path = Some(path.to_path_buf());
+                    self.docx = None;
+                    self.pdf = None;
+                    self.spreadsheet = None;
+                    self.legacy_doc = None;
+                    self.docx_textures.clear();
+                    self.legacy_doc_textures.clear();
+                    self.saved_docx_model = None;
+                    self.text_fallback_open = true;
+                    self.finish_open(
+                        path,
+                        tr!(
+                            "открыто как текст: расширение/формат не совпали с содержимым",
+                            "opened as text: extension/format does not match content"
+                        ),
+                    );
+                    return;
+                }
+                Err(fallback_error) => {
+                    self.open_failed(
+                        stage,
+                        format!("{error}; text fallback failed: {fallback_error}"),
+                    );
+                    return;
+                }
+            }
+        }
+        self.open_failed(stage, error);
+    }
+
     fn finish_open(&mut self, path: &Path, description: &str) {
-        if !matches!(
-            file_ops::document_kind(path),
-            Ok(DocumentKind::Txt | DocumentKind::Markdown | DocumentKind::Rtf)
-        ) {
+        if !self.text_fallback_open
+            && !matches!(
+                file_ops::document_kind(path),
+                Ok(DocumentKind::Txt | DocumentKind::Markdown | DocumentKind::Rtf)
+            )
+        {
             self.text = None;
         }
+        self.text_fallback_open = false;
         self.text_focus_pending = self.text.is_some();
         self.text_input_id = None;
         self.pdf_print_open = false;
@@ -2428,7 +2505,11 @@ impl NotOfficeApp {
         let kind = match file_ops::document_kind(&path) {
             Ok(kind) => kind,
             Err(error) => {
-                self.open_failed(tr!("проверка типа документа", "document-type check"), error);
+                self.open_failed_or_text(
+                    &path,
+                    tr!("проверка типа документа", "document-type check"),
+                    error,
+                );
                 return;
             }
         };
@@ -2453,7 +2534,11 @@ impl NotOfficeApp {
                             ),
                         );
                     }
-                    Err(error) => self.open_failed(tr!("загрузка текста", "text loading"), error),
+                    Err(error) => self.open_failed_or_text(
+                        &path,
+                        tr!("загрузка текста", "text loading"),
+                        error,
+                    ),
                 }
             }
             DocumentKind::Pdf => match pdf_view::PdfView::open(&path) {
@@ -2474,7 +2559,9 @@ impl NotOfficeApp {
                         ),
                     );
                 }
-                Err(error) => self.open_failed(tr!("загрузка PDF", "PDF loading"), error),
+                Err(error) => {
+                    self.open_failed_or_text(&path, tr!("загрузка PDF", "PDF loading"), error)
+                }
             },
             DocumentKind::Docx => {
                 self.record_open_stage(
@@ -2505,7 +2592,9 @@ impl NotOfficeApp {
                             self.docx.as_ref().map(|package| package.model.clone());
                         self.finish_open(&path, tr!("DOCX загружен", "DOCX loaded"));
                     }
-                    Err(error) => self.open_failed(tr!("загрузка DOCX", "DOCX loading"), error),
+                    Err(error) => {
+                        self.open_failed_or_text(&path, tr!("загрузка DOCX", "DOCX loading"), error)
+                    }
                 }
             }
             DocumentKind::Xlsx => {
@@ -2544,7 +2633,9 @@ impl NotOfficeApp {
                             ),
                         );
                     }
-                    Err(error) => self.open_failed(tr!("загрузка XLSX", "XLSX loading"), error),
+                    Err(error) => {
+                        self.open_failed_or_text(&path, tr!("загрузка XLSX", "XLSX loading"), error)
+                    }
                 }
             }
             DocumentKind::Xls | DocumentKind::Xlsb | DocumentKind::Ods => {
@@ -2576,9 +2667,11 @@ impl NotOfficeApp {
                             ),
                         );
                     }
-                    Err(error) => {
-                        self.open_failed(tr!("загрузка таблицы", "spreadsheet loading"), error)
-                    }
+                    Err(error) => self.open_failed_or_text(
+                        &path,
+                        tr!("загрузка таблицы", "spreadsheet loading"),
+                        error,
+                    ),
                 }
             }
             DocumentKind::Csv => match open_csv_isolated(&path) {
@@ -2599,7 +2692,11 @@ impl NotOfficeApp {
                         ),
                     );
                 }
-                Err(error) => self.open_failed(tr!("загрузка CSV/TSV", "CSV/TSV loading"), error),
+                Err(error) => self.open_failed_or_text(
+                    &path,
+                    tr!("загрузка CSV/TSV", "CSV/TSV loading"),
+                    error,
+                ),
             },
             DocumentKind::Doc => {
                 self.record_open_stage(
@@ -2639,9 +2736,11 @@ impl NotOfficeApp {
                         self.saved_docx_model = None;
                         self.finish_open(&path, tr!("старый DOC загружен", "legacy DOC loaded"));
                     }
-                    Err(error) => {
-                        self.open_failed(tr!("загрузка старого DOC", "legacy DOC loading"), error)
-                    }
+                    Err(error) => self.open_failed_or_text(
+                        &path,
+                        tr!("загрузка старого DOC", "legacy DOC loading"),
+                        error,
+                    ),
                 }
             }
         }
@@ -4794,16 +4893,19 @@ impl NotOfficeApp {
                             self.select_all_text = false;
                         }
                         let size = ui.available_size().max(egui::vec2(100.0, 300.0));
+                        let editor_rows = ((size.y / (18.0 * self.zoom)).floor() as usize).max(4);
                         let output = ui
                             .allocate_ui_with_layout(
                                 size,
                                 egui::Layout::top_down(egui::Align::Min),
                                 |ui| {
+                                    ui.set_min_height(size.y);
                                     egui::TextEdit::multiline(&mut document.text)
                                         .id(id)
                                         .font(egui::FontId::monospace(14.0 * self.zoom))
                                         .text_color(ui_theme::text_ink())
                                         .desired_width(size.x)
+                                        .desired_rows(editor_rows)
                                         .char_limit(8 * 1024 * 1024)
                                         .show(ui)
                                 },

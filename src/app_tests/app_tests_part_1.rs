@@ -74,7 +74,7 @@ fn failed_conflict_reload_keeps_my_unsaved_model_and_choice_dialog() {
     let mut app = NotOfficeApp::default();
     app.request_open_path(path.clone());
     edit_first_text(&mut app, "My unsaved text");
-    std::fs::write(&path, b"not a DOCX now").unwrap();
+    std::fs::write(&path, b"not a DOCX now\0").unwrap();
     assert!(!app.save_document());
     app.open_path(path.clone());
     assert_eq!(loaded_docx_text(&app), "My unsaved text");
@@ -122,7 +122,7 @@ fn opening_a_broken_replacement_after_discard_does_not_destroy_the_current_edits
     let source = folder.path().join("source.docx");
     let broken = folder.path().join("broken.docx");
     write_docx_fixture(&source, "Original");
-    std::fs::write(&broken, b"not a ZIP").unwrap();
+    std::fs::write(&broken, b"not a ZIP\0").unwrap();
     let mut app = NotOfficeApp::default();
     app.request_open_path(source.clone());
     edit_first_text(&mut app, "Still unsaved");
@@ -203,7 +203,7 @@ fn failed_second_docx_open_keeps_existing_model_and_shows_error() {
     let first = folder.path().join("first.docx");
     let broken = folder.path().join("broken.docx");
     write_docx_fixture(&first, "Document A");
-    std::fs::write(&broken, b"not a ZIP package").unwrap();
+    std::fs::write(&broken, b"not a ZIP package\0").unwrap();
     let mut app = NotOfficeApp::default();
     app.request_open_path(first.clone());
 

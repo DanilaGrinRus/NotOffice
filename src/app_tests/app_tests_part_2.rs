@@ -370,7 +370,7 @@ fn failed_pdf_open_keeps_unsaved_docx_and_pdf_replacement_uses_existing_dirty_gu
     let docx = folder.path().join("source.docx");
     let pdf = folder.path().join("broken.pdf");
     write_docx_fixture(&docx, "Original");
-    std::fs::write(&pdf, b"%PDF-1.7\nbroken").unwrap();
+    std::fs::write(&pdf, b"%PDF-1.7\n\0broken").unwrap();
     let mut app = NotOfficeApp::default();
     app.request_open_path(docx.clone());
     edit_first_text(&mut app, "Keep my edits");
@@ -466,7 +466,7 @@ fn text_open_replacement_failure_and_switching_formats_preserve_active_data() {
     let md = folder.path().join("note.md");
     std::fs::write(&md, "# Markdown").unwrap();
     let bad = folder.path().join("bad.rtf");
-    std::fs::write(&bad, b"not rtf").unwrap();
+    std::fs::write(&bad, b"not rtf\0").unwrap();
     let docx = folder.path().join("test.docx");
     write_docx_fixture(&docx, "Original");
     let mut app = NotOfficeApp::blank_text();

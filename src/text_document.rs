@@ -118,6 +118,40 @@ impl TextDocument {
     pub fn is_dirty(&self) -> bool {
         self.text != self.saved_text
     }
+    /// Open any UTF-8/UTF-16 file as literal text even when its extension
+    /// belongs to a binary format. The source stays protected; Save As is
+    /// required so a mismatched original cannot be overwritten as text.
+    pub fn open_as_text(path: &Path) -> Result<Self, DocxError> {
+        let before = source_fingerprint(path)?;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take((LIMIT + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        let text = decode(TextKind::Txt, &bytes)?;
+        if source_fingerprint(path)? != before {
+            return Err(DocxError::SourceChanged);
+        }
+        Ok(Self {
+            text: text.clone(),
+            kind: TextKind::Txt,
+            path: None,
+            protected_origin: Some(path.to_path_buf()),
+            fingerprint: None,
+            saved_text: text,
+        })
+    }
+
+    pub fn from_fallback_isolated(text: String, path: &Path) -> Result<Self, DocxError> {
+        Ok(Self {
+            text: text.clone(),
+            kind: TextKind::Txt,
+            path: None,
+            protected_origin: Some(path.to_path_buf()),
+            fingerprint: None,
+            saved_text: text,
+        })
+    }
+
     pub fn open(path: &Path) -> Result<Self, DocxError> {
         let before = source_fingerprint(path)?;
         let mut bytes = Vec::new();
@@ -519,6 +553,18 @@ mod tests {
         assert_eq!(TextDocument::open(&copy).unwrap().text, "Не терять");
         assert!(second.save(&dir.path().join("missing/bad.txt")).is_err());
     }
+    #[test]
+    fn mismatched_extension_opens_as_protected_plain_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("actually-text.docx");
+        std::fs::write(&path, "Привет, это обычный текст").unwrap();
+        let document = TextDocument::open_as_text(&path).unwrap();
+        assert_eq!(document.text, "Привет, это обычный текст");
+        assert_eq!(document.kind, TextKind::Txt);
+        assert!(document.path().is_none());
+        assert!(document.requires_save_as());
+    }
+
     #[test]
     fn rtf_original_and_alias_are_protected_and_basic_copy_is_valid() {
         let dir = tempfile::tempdir().unwrap();
